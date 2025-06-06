@@ -1,0 +1,470 @@
+---
+title: "BRAND_LONGTIDUNAL_AWARENESS"
+format: html
+editor: visual
+---
+
+## Quarto
+
+Quarto enables you to weave together content and executable code into a finished document. To learn more about Quarto see <https://quarto.org>.
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+```{r}
+require(dplyr)
+library(readr)
+BRAND_AWARENESS_LONGTIDUNAL <- read.csv("/Users/grahamalbert/git/Brand-Tracking-Q2-2025/BRAND_LONGTUDINAL_AWARE_REVISED.csv")
+BRAND_AWARENESS_LONGTIDUNAL
+
+BRAND_AWARENESS_LONGTIDUNAL |>
+  distinct(BENCH_LABEL)
+```
+
+Filter out all rows wheree bench label is absent.
+```{r}
+library(dplyr)
+
+excluded_labels <- c(
+  "Marsh McLennan",
+  "Hub International",
+  "Insureon",
+  "Aon",
+  "Brown & Brown",
+  "Lockton Companies",
+  "Lemonade",
+  "Arthur J. Gallagher & Co.",
+  "Goosehead",
+  "Hippo",
+  "Willis Towers Watson",
+  "Hiscox",
+  ""
+)
+
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data <- BRAND_AWARENESS_LONGTIDUNAL_REDUCED |>
+  filter(!BENCH_LABEL %in% excluded_labels)
+
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data
+
+```
+
+Now lets compute percentage and standard error
+
+```{r}
+require(dplyr)
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage<-mutate(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data,
+                                                       Percent=BA_PCT_ROLLING*100,
+                                                       Error=DELTA_PQ*100)
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage
+```
+
+Now lets filter into separate data sets
+- Personal lines
+
+```{r}
+
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage$STRATA<-as.factor(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage$STRATA)
+summary(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage$STRATA)
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage$BENCH_LABEL<-as.factor(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage$BENCH_LABEL)
+summary(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage$BENCH_LABEL)
+```
+
+```{r}
+
+
+
+library(dplyr)
+library(stringr)
+
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED <-
+  BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage |>
+  filter(!str_detect(STRATA, "CL"))
+
+
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED$SURVEY_YEAR<-as.factor(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED$SURVEY_YEAR)
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED$SURVEY_QUARTER<-as.factor(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED$SURVEY_QUARTER)
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED
+```
+
+- Commerical lines
+```{r}
+
+
+library(dplyr)
+library(stringr)
+
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED<-
+  BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage |>
+  filter(!str_detect(STRATA, "PL"))
+
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED$SURVEY_YEAR<-as.factor(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED$SURVEY_YEAR)
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED$SURVEY_QUARTER<-as.factor(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED$SURVEY_QUARTER)
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED
+```
+
+
+Now lets create a new time based variable called year and quarter.
+
+- Personal
+```{r}
+library(dplyr)
+library(forcats)
+
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED <- BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED |>
+  mutate(
+    wave_num = (as.numeric(as.character(SURVEY_YEAR)) - 2023) * 4 +
+               as.numeric(as.character(SURVEY_QUARTER)) - 3,
+    wave = factor(wave_num, levels = sort(unique(wave_num)), ordered = TRUE)
+  )
+
+```
+Let's factor wave
+```{r}
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED$wave<-factor(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED$wave,
+                                            levels=c(1,2,3,4,5,6,7),
+                                            labels=c("2023 Q4","2024 Q1","2024 Q2","2024 Q3","2024 Q4","2025 Q1","2025 Q2"))
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED$wave
+
+
+BRAND_AWARENESS_LONGTIDUNAL_PL_REDUCED <- BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_PL_filtered_REDUCED |>
+  filter(
+    !wave %in% c("2023 Q4","2024 Q1","2024 Q2")
+  )
+BRAND_AWARENESS_LONGTIDUNAL_PL_REDUCED
+
+BRAND_AWARENESS_LONGTIDUNAL_PL_REDUCED_2<-subset(BRAND_AWARENESS_LONGTIDUNAL_PL_REDUCED,BRAND_AWARENESS_LONGTIDUNAL_PL_REDUCED$BENCH_LABEL!="")
+BRAND_AWARENESS_LONGTIDUNAL_PL_REDUCED_2
+```
+
+
+```{R}
+
+p1<-plot_single_line_with_error(
+  dataframe = BRAND_AWARENESS_LONGTIDUNAL_PL_REDUCED_2,
+  x_var = wave,
+  y_var = Percent,
+  color_var = BENCH_LABEL,
+  se_var = Error,
+  plot_title = "",
+  x_label = "Year and Quarter",
+  y_label = "Awareness (%)",
+  plot_name = "Awareness-Over-Time-PL.png"
+)
+p1
+
+
+```
+
+- Commercial
+```{r}
+library(dplyr)
+library(forcats)
+
+BRAND_AWARENESS_LONGTIDUNAL_CL <- BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED |>
+  mutate(
+    wave_num = (as.numeric(as.character(SURVEY_YEAR)) - 2023) * 4 +
+               as.numeric(as.character(SURVEY_QUARTER)) - 3,
+    wave = factor(wave_num, levels = sort(unique(wave_num)), ordered = TRUE)
+  )
+```
+
+Let's factor wave
+```{r}
+BRAND_AWARENESS_LONGTIDUNAL_CL$wave<-factor(BRAND_AWARENESS_LONGTIDUNAL_CL$wave,
+                                            levels=c(1,2,3,4,5,6,7),
+                                            labels=c("2023 Q4","2024 Q1","2024 Q2","2024 Q3","2024 Q4","2025 Q1","2025 Q2"))
+BRAND_AWARENESS_LONGTIDUNAL_CL$wave
+
+
+
+BRAND_AWARENESS_LONGTIDUNAL_CL_REDUCED <- BRAND_AWARENESS_LONGTIDUNAL_CL |>
+  filter(
+    !wave %in% c("2023 Q4","2024 Q1","2024 Q2")
+  )
+BRAND_AWARENESS_LONGTIDUNAL_CL_REDUCED
+BRAND_AWARENESS_LONGTIDUNAL_CL_REDUCED_2<-subset(BRAND_AWARENESS_LONGTIDUNAL_CL_REDUCED,BRAND_AWARENESS_LONGTIDUNAL_CL_REDUCED$BENCH_LABEL!="")
+BRAND_AWARENESS_LONGTIDUNAL_CL_REDUCED_2<-BRAND_AWARENESS_LONGTIDUNAL_CL_REDUCED_2[-17,]
+```
+
+```{R}
+BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED<-subset(BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED,BRAND_AWARENESS_LONGTIDUNAL_REDUCED_filtered_data_percentage_CL_filtered_REDUCED$BENCH_LABEL!="None of the above")
+
+p2<-plot_single_line_with_error(
+  dataframe = BRAND_AWARENESS_LONGTIDUNAL_CL_REDUCED_2,
+  x_var = wave,
+  y_var = Percent,
+  color_var = BENCH_LABEL,
+  se_var = Error,
+  plot_title = "",
+  x_label = "Year and Quarter",
+  y_label = "Awareness (%)",
+  plot_name = "Awareness-Over-Time-CL.png"
+)
+p2
+```
+
+
+Point estimates.
+```{r}
+
+library(readr)
+Brand_awareness_longtidunal_point_estimate <- read_csv("Brand_awareness_longtidunal_point_estimate.csv")
+View(Brand_awareness_longtidunal_point_estimate)
+colnames(Brand_awareness_longtidunal_point_estimate)
+````
+
+Reduced the dataframe
+
+```{r}
+require(dplyr)
+Brand_awareness_longtidunal_point_estimate_reduced<-dplyr::select(Brand_awareness_longtidunal_point_estimate,ResponseId,Q75_SHARED_1,Q75_SHARED_2,Q75_SHARED_3,Q75_SHARED_4,Q75_SHARED_5,Q75_SHARED_6,Q75_SHARED_7,Q75_SHARED_8,Year,Quarter,LOB,WAVE)
+Brand_awareness_longtidunal_point_estimate_reduced
+
+
+Brand_awareness_longtidunal_point_estimate_reduced<-replace_NA_with_value(
+  Brand_awareness_longtidunal_point_estimate_reduced,
+  columns = c("Q75_SHARED_1",  ),replace_value=0)
+
+
+
+
+Brand_awareness_longtidunal_point_estimate_reduce <- Brand_awareness_longtidunal_point_estimate_reduced |>
+  mutate(across(
+    c(Q75_SHARED_1, Q75_SHARED_2, Q75_SHARED_3, Q75_SHARED_4,
+      Q75_SHARED_5, Q75_SHARED_6, Q75_SHARED_7, Q75_SHARED_8),
+    as.numeric
+  ))
+Brand_awareness_longtidunal_point_estimate_reduce
+```
+
+Now lets subset according to line type
+```{r}
+Brand_awareness_longtidunal_point_estimate_reduced_PL<-subset(Brand_awareness_longtidunal_point_estimate_reduced,Brand_awareness_longtidunal_point_estimate_reduced$LOB=="PL")
+Brand_awareness_longtidunal_point_estimate_reduced_PL_2<-select(Brand_awareness_longtidunal_point_estimate_reduced_PL,ResponseId,WAVE,Q75_SHARED_1,Q75_SHARED_2,Q75_SHARED_3,Q75_SHARED_4,Q75_SHARED_5,Q75_SHARED_6,Q75_SHARED_7,Q75_SHARED_8)
+Brand_awareness_longtidunal_point_estimate_reduced_PL_2
+Brand_awareness_longtidunal_point_estimate_reduced_PL_2$WAVE<-as.factor(Brand_awareness_longtidunal_point_estimate_reduced_PL_2$WAVE)
+
+Brand_awareness_longtidunal_point_estimate_reduced_CL<-subset(Brand_awareness_longtidunal_point_estimate_reduced,Brand_awareness_longtidunal_point_estimate_reduced$LOB=="CL")
+Brand_awareness_longtidunal_point_estimate_reduced_CL
+Brand_awareness_longtidunal_point_estimate_reduced_CL_2<-select(Brand_awareness_longtidunal_point_estimate_reduced_CL,ResponseId,WAVE,Q75_SHARED_1,Q75_SHARED_2,Q75_SHARED_3,Q75_SHARED_4,Q75_SHARED_5,Q75_SHARED_6,Q75_SHARED_7,Q75_SHARED_8)
+Brand_awareness_longtidunal_point_estimate_reduced_CL_2
+Brand_awareness_longtidunal_point_estimate_reduced_CL_2$WAVE<-as.factor(Brand_awareness_longtidunal_point_estimate_reduced_CL_2$WAVE)
+```
+Personal lines
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+
+bench_summary_pl <- Brand_awareness_longtidunal_point_estimate_reduced_PL |>
+  pivot_longer(
+    cols = Q75_SHARED_2:Q75_SHARED_8,
+    names_to = "question",
+    values_to = "response"
+  ) |>
+  filter(!is.na(response)) |>
+  group_by(question, response) |>
+  summarise(
+    count = n(),
+    .groups = "drop_last"
+  ) |>
+  mutate(
+    percent = 100 * count / sum(count),
+    WAVE = "Bench"  # Label this as the benchmark row
+  ) |>
+  ungroup()
+bench_summary_pl
+```
+
+```{R}
+
+library(dplyr)
+library(tidyr)
+
+df_summary_pl <- Brand_awareness_longtidunal_point_estimate_reduced_PL |>
+  pivot_longer(
+    cols = starts_with("Q75_SHARED_"),
+    names_to = "question",
+    values_to = "response"
+  ) |>
+  filter(!is.na(response)) |>
+  group_by(WAVE, question, response) |>
+  summarise(count = n(), .groups = "drop_last") |>
+  mutate(
+    percent = 100 * count / sum(count)
+  ) |>
+  ungroup()
+df_summary_pl
+```
+
+
+```{r}
+
+df_summary_pl <- Brand_awareness_longtidunal_point_estimate_reduced_PL |>   
+  pivot_longer(     
+    cols = starts_with("Q75_SHARED_"),     
+    names_to = "question",     
+    values_to = "response"   
+  ) |>   
+  filter(!is.na(response)) |>   
+  group_by(WAVE, question, response) |>   
+  summarise(count = n(), .groups = "drop_last") |>   
+  mutate(     
+    percent = 100 * count / sum(count)   
+  ) |>   
+  ungroup()
+
+# Calculate benchmark means for Q75_SHARED_2 to Q75_SHARED_8
+bench_summary_pl <- df_summary_pl |>
+  filter(question %in% paste0("Q75_SHARED_", 2:8)) |>
+  group_by(WAVE, response) |>
+  summarise(count = mean(count), .groups = "drop_last") |>
+  mutate(
+    percent = 100 * count / sum(count),
+    question = "bench"
+  ) |>
+  ungroup()
+
+# Combine original summary with benchmark
+df_summary_pl <- bind_rows(df_summary_pl, bench_summary_pl)
+
+df_summary_pl
+
+df_summary_pl <- bind_rows(df_summary_pl, bench_summary_pl) |>
+  filter(response == 1) |>  # Only keep rows where response is 1
+  filter(question %in% c("bench", "Q75_SHARED_1")) |>  # Only keep bench and Q75_SHARED_1
+  mutate(
+    question = case_when(
+      question == "bench" ~ "Bench Mark",
+      question == "Q75_SHARED_1" ~ "Acrisure",
+      TRUE ~ question
+    )
+  )
+
+df_summary_pl
+```
+
+```{r}
+p3<-plot_single_line_with_smooth(
+  dataframe = df_summary_pl,
+  x_var = WAVE,
+  y_var = percent,
+  color_var = question,
+  plot_title = "",
+  x_label = "Survey Wave",
+  y_label = "% Awareness",
+  plot_name = "pl-response-awareness-wave.png"
+)
+p3
+```
+
+
+Commercial lines
+
+```{r}
+
+library(dplyr)
+library(tidyr)
+
+bench_summary_cl <- Brand_awareness_longtidunal_point_estimate_reduced_CL |>
+  pivot_longer(
+    cols = Q75_SHARED_2:Q75_SHARED_8,
+    names_to = "question",
+    values_to = "response"
+  ) |>
+  filter(!is.na(response)) |>
+  group_by(question, response) |>
+  summarise(
+    count = n(),
+    .groups = "drop_last"
+  ) |>
+  mutate(
+    percent = 100 * count / sum(count),
+    WAVE = "Bench"  # Label this as the benchmark row
+  ) |>
+  ungroup()
+bench_summary_cl
+```
+
+```{R}
+
+library(dplyr)
+library(tidyr)
+
+df_summary_cl <- Brand_awareness_longtidunal_point_estimate_reduced_CL |>
+  pivot_longer(
+    cols = starts_with("Q75_SHARED_"),
+    names_to = "question",
+    values_to = "response"
+  ) |>
+  filter(!is.na(response)) |>
+  group_by(WAVE, question, response) |>
+  summarise(count = n(), .groups = "drop_last") |>
+  mutate(
+    percent = 100 * count / sum(count)
+  ) |>
+  ungroup()
+df_summary_cl
+```
+
+
+```{r}
+
+df_summary_cl <- Brand_awareness_longtidunal_point_estimate_reduced_CL |>   
+  pivot_longer(     
+    cols = starts_with("Q75_SHARED_"),     
+    names_to = "question",     
+    values_to = "response"   
+  ) |>   
+  filter(!is.na(response)) |>   
+  group_by(WAVE, question, response) |>   
+  summarise(count = n(), .groups = "drop_last") |>   
+  mutate(     
+    percent = 100 * count / sum(count)   
+  ) |>   
+  ungroup()
+
+# Calculate benchmark means for Q75_SHARED_2 to Q75_SHARED_8
+bench_summary_cl <- df_summary_cl |>
+  filter(question %in% paste0("Q75_SHARED_", 2:8)) |>
+  group_by(WAVE, response) |>
+  summarise(count = mean(count), .groups = "drop_last") |>
+  mutate(
+    percent = 100 * count / sum(count),
+    question = "bench"
+  ) |>
+  ungroup()
+
+# Combine original summary with benchmark
+df_summary_cl <- bind_rows(df_summary_cl, bench_summary_cl)
+
+df_summary_cl
+
+df_summary_cl <- bind_rows(df_summary_cl, bench_summary_cl) |>
+  filter(response == 1) |>  # Only keep rows where response is 1
+  filter(question %in% c("bench", "Q75_SHARED_1")) |>  # Only keep bench and Q75_SHARED_1
+  mutate(
+    question = case_when(
+      question == "bench" ~ "Bench Mark",
+      question == "Q75_SHARED_1" ~ "Acrisure",
+      TRUE ~ question
+    )
+  )
+
+df_summary_cl
+```
+
+```{r}
+p4<-plot_single_line_with_smooth(
+  dataframe = df_summary_cl,
+  x_var = WAVE,
+  y_var = percent,
+  color_var = question,
+  plot_title = "",
+  x_label = "Survey Wave",
+  y_label = "% Awareness",
+  plot_name = "cl-response-awareness-wave.png"
+)
+p4
+```

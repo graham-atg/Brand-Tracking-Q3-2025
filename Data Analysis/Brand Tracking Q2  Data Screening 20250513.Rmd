@@ -1,0 +1,351 @@
+---
+title: "Brand Tracking Q2 Data Screening"
+author: "Graham Albert"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+getwd()
+```
+
+Lets load qualtrics and sjlabelles
+
+```{r}
+require(qualtRics)
+require(sjlabelled)
+```
+
+Now lets load in the data PL
+
+```{r}
+cleaned_data <- load_survey_data(
+  api_key = "7kgP8J0RqagC4VJYSuEog6jxzY015PUozbBgbgAt",
+  base_url = "sjc1.qualtrics.com/",
+  surveyID = "SV_exGIKwTZOAbDKEC"
+)
+require(readr)
+
+#cleaned_data<-subset(cleaned_data,cleaned_data$q35_shared_1=="Live television")
+cleaned_data
+write_csv(cleaned_data,file = 'BTQ2_PL_2025.csv')
+```
+
+```{r}
+require(readr)
+BTQ2_PL<-read_csv('BTQ2_PL_2025.csv')
+colnames(BTQ2_PL)
+```
+
+Now lets add the respondent type to the dataframe
+
+```{r}
+BTQ2_PL$RESPONDENT_TYPE <- as.factor(1)
+
+# Reorder columns to move 'RESPONDENT_TYPE' to the first position
+BTQ2_PL  <- BTQ2_PL[, c("RESPONDENT_TYPE", names(BTQ2_PL)[-ncol(BTQ2_PL)])]
+
+# If you want to see the result, you can print the dataframe
+print(BTQ2_PL)
+
+```
+
+Lets start by subsetting all variables that need to be converted from a character variable to a factor variable
+
+```{r}
+require(dplyr)
+BTQ2_PL_analytic_data_survey_factor<-dplyr::select(BTQ2_PL,-q3_shared,-q8_pl,-q9_pl, -q11_shared_3_text,-q17_shared_6_text,-q19_shared_9_text,-q20_shared,-q303_pl,-q65_shared,-q67_shared)
+colnames(BTQ2_PL_analytic_data_survey_factor)
+```
+
+```{R}
+colnames(BTQ2_PL_analytic_data_survey_factor)
+```
+
+Now lets subset out the numeric and character variables and ensure that they are numeric/character that we will not change.
+
+```{r}
+BTQ2_PL_analytic_data_survey_numeric<-dplyr::select(BTQ2_PL,response_id,q3_shared,q8_pl,q9_pl, q11_shared_3_text,q17_shared_6_text,q19_shared_9_text,q20_shared,q303_pl,q65_shared,q67_shared)
+colnames(BTQ2_PL_analytic_data_survey_numeric)
+```
+
+Now we will factorize the variables that should be factored using this subseted dataframe.
+
+```{r}
+BTQ2_PL_analytic_data_survey_factorized <- lapply(BTQ2_PL_analytic_data_survey_factor, function(x) as.factor(as.character(x)))
+BTQ2_PL_analytic_data_survey_factorized<-data.frame(BTQ2_PL_analytic_data_survey_factorized) 
+summary(BTQ2_PL_analytic_data_survey_factorized)
+```
+
+Now lets bind the two dataframe
+
+```{r}
+BTQ2_PL_analytic_data<-merge(BTQ2_PL_analytic_data_survey_factorized,BTQ2_PL_analytic_data_survey_numeric,by="response_id")
+summary(BTQ2_PL_analytic_data)
+names(BTQ2_PL_analytic_data)
+```
+
+# Save the dataframe to a CSV file
+
+```{r}
+write.csv(BTQ2_PL_analytic_data, "BTQ2_PL_analytic_data_retained.csv", row.names = FALSE)
+colnames(BTQ2_PL_analytic_data)
+```
+
+Now lets load in the data CL
+
+```{r}
+cleaned_data <- load_survey_data(
+  api_key = "7kgP8J0RqagC4VJYSuEog6jxzY015PUozbBgbgAt",
+  base_url = "sjc1.qualtrics.com/",
+  surveyID = "SV_bfrQe0d8hVVxnz8"
+)
+require(readr)
+write_csv(cleaned_data,file = 'BTQ2_CL_2025.csv')
+#cleaned_data<-subset(cleaned_data,cleaned_data$gc==1)
+cleaned_data
+write_csv(cleaned_data,file = 'BTQ2_CL_2025.csv')
+```
+
+```{r}
+require(readr)
+BTQ2_CL<-read_csv('BTQ2_CL_2025.csv')
+colnames(BTQ2_CL)
+BTQ2_CL
+```
+
+
+This code will remove the rows from the dataframe `BTQ2_CL` where the `response_id` matches any of the IDs in the `response_ids_to_remove` list. If you need any further assistance or have any questions, feel free to ask!
+
+Now lets add the respondent type to the dataframe
+
+```{r}
+BTQ2_CL$RESPONDENT_TYPE <- as.factor(2)
+
+# Reorder columns to move 'RESPONDENT_TYPE' to the first position
+BTQ2_CL <- BTQ2_CL[, c("RESPONDENT_TYPE", names(BTQ2_CL)[-ncol(BTQ2_CL)])]
+
+# If you want to see the result, you can print the dataframe
+colnames(BTQ2_CL)
+BTQ2_CL
+```
+
+Now we will: - 1. subset out all variables that should be factors - 2. apply a function to factor them - 3. merge them back with the variables that must remain numeric or character.
+
+Now lets subset out the numeric and character variables and ensure that they are numeric/character that we will not change.
+
+```{r}
+BTQ2_CL_analytic_data_survey_numeric<-dplyr::select(BTQ2_CL,-q3_shared, -q11_shared_3_text,-q17_shared_6_text,-q19_shared_9_text,-q130_cl_4_text,-q20_shared,-q19_cl,-q131_cl,-q23_cl,-q24_cl,-q25_cl,-q27_cl_11_text,-q30_cl_9_text,-q303_cl_12_text,-q65_shared,-q67_shared)
+BTQ2_CL_analytic_data_survey_numeric
+```
+
+Now lets compute the factor variable.
+
+```{r}
+BTQ2_CL_analytic_data_survey_factor<-dplyr::select(BTQ2_CL,response_id,q3_shared,q11_shared_3_text,q17_shared_6_text,q19_shared_9_text,q130_cl_4_text,q20_shared,q19_cl,q131_cl,q23_cl,q24_cl,q25_cl,q27_cl_11_text,q30_cl_9_text,q303_cl_12_text,q65_shared,q67_shared)
+colnames(BTQ2_CL_analytic_data_survey_factor)
+BTQ2_CL_analytic_data_survey_factor
+```
+
+Now we will factorize the variables that should be factored using this subseted dataframe.
+
+```{r}
+BTQ2_CL_analytic_data_survey_factorized <- lapply(BTQ2_CL_analytic_data_survey_factor, function(x) as.factor(as.character(x)))
+BTQ2_CL_analytic_data_survey_factorized<-data.frame(BTQ2_CL_analytic_data_survey_factorized) 
+summary(BTQ2_CL_analytic_data_survey_factorized)
+BTQ2_CL_analytic_data_survey_factorized
+```
+
+Now lets bind the two dataframe
+
+```{r}
+BTQ2_CL_analytic_data<-merge(BTQ2_CL_analytic_data_survey_factorized,BTQ2_CL_analytic_data_survey_numeric,by="response_id")
+summary(BTQ2_CL_analytic_data)
+names(BTQ2_CL_analytic_data)
+BTQ2_CL_analytic_data
+```
+
+# Save the dataframe to a CSV file
+
+```{r}
+write.csv(BTQ2_CL_analytic_data, "BTQ2_CL_analytic_data_retained.csv", row.names = FALSE)
+BTQ2_CL_analytic_data
+```
+
+```{r}
+# Read the CSV file into a data frame
+BTQ2_PL_analytic_data <- read.csv("BTQ2_PL_analytic_data_retained.csv")
+# Print the first few rows of the data frame
+colnames(BTQ2_PL_analytic_data)
+```
+
+```{r}
+colnames(BTQ2_CL_analytic_data)
+common_column_names <- intersect(names(BTQ2_PL_analytic_data), names(BTQ2_CL_analytic_data))
+common_column_names
+```
+
+```{r}
+colnames(BTQ2_CL_analytic_data)
+```
+
+Lets determine the variables that both dataframes share
+
+```{r}
+require(dplyr)
+# Assuming df1 and df2 are your dataframes
+# Replace 'common_column_names' with the actual names of the common columns
+common_column_names <- intersect(names(BTQ2_PL_analytic_data), names(BTQ2_CL_analytic_data))
+BTQ2_PL_analytic_data_shared=BTQ2_PL_analytic_data[common_column_names]
+BTQ2_PL_analytic_data_shared
+```
+
+Unique PL variables
+
+```{r}
+BTQ2_PL_analytic_data_unique=dplyr::select(BTQ2_PL_analytic_data,response_id,q5_pl,q8_pl,q9_pl,q10_pl_1,q10_pl_2,q10_pl_3,q10_pl_4,q11_shared_3_text,q12_pl,q13_pl,q22_pl_1,q22_pl_2,q22_pl_3,q22_pl_4,q22_pl_5,q22_pl_6,q22_pl_7,q22_pl_8,q22_pl_9,q24_pl_1,q24_pl_2,
+q24_pl_3,q24_pl_4,q24_pl_5,q24_pl_6,q24_pl_7,q24_pl_8,q24_pl_9,q25_pl_10,q25_pl_11,q25_pl_12,q25_pl_3,q25_pl_6,q25_pl_7,q25_pl_8,q25_pl_2,q25_pl_15,q25_pl_14,q25_pl_13,
+q25_pl_4,q25_pl_1,q25_pl_5,q25_pl_9,q25_pl_16,
+q26_pl_10,q26_pl_11,q26_pl_12,q26_pl_3,q26_pl_6,q26_pl_7,q26_pl_8,q26_pl_2,q26_pl_15,q26_pl_14,q26_pl_13,q26_pl_4,q26_pl_1,q26_pl_5,q26_pl_16,
+q26_pl_9,q27_pl_10,q27_pl_11,q27_pl_12,q27_pl_3,q27_pl_6,q27_pl_7,q27_pl_8,q27_pl_2,q27_pl_15,q27_pl_14,q27_pl_13,q27_pl_4,q27_pl_1,q27_pl_5,q27_pl_9,q27_pl_16,
+q307_pl_10,q307_pl_11,q307_pl_12,q307_pl_3,q307_pl_6,q307_pl_7,q307_pl_8,q307_pl_2,q307_pl_15,q307_pl_14,q307_pl_13,q307_pl_4,q307_pl_1,q307_pl_5,q307_pl_9,q307_pl_16,
+q308_pl_10,q308_pl_11,q308_pl_12,q308_pl_3,q308_pl_6,q308_pl_7,q308_pl_8,q308_pl_2,q308_pl_15,q308_pl_14,q308_pl_13,q308_pl_4,q308_pl_1,q308_pl_5,q308_pl_9,q308_pl_16,q303_pl,
+q75_shared_9,q75_shared_10,q75_shared_11,
+q312_pl_1,q312_pl_2,q312_pl_3,q312_pl_4,q312_pl_5,q312_pl_6,q312_pl_7,q312_pl_8,q312_pl_9,q312_pl_10,q312_pl_11,
+q314_pl_1,q314_pl_2,q314_pl_3,q314_pl_4,q314_pl_5,q314_pl_6,q314_pl_7,q314_pl_8,q314_pl_9,q314_pl_10,q314_pl_11,
+q313_pl_1,q313_pl_2,q313_pl_3,q313_pl_4,q313_pl_5,q313_pl_6,q313_pl_7,q313_pl_8,q313_pl_9,q313_pl_10,q313_pl_11,
+q315_shared_1,q315_shared_2,q315_shared_3,q315_shared_4,q315_shared_5,q315_shared_6,q315_shared_7,q315_shared_8,q315_shared_9,q315_shared_10,q315_shared_11,
+q37_shared_9,q37_shared_10,q37_shared_11,
+q38_shared_9,q38_shared_10,q38_shared_11,
+q40_shared_9,q40_shared_10,q40_shared_11,
+q41_shared_9,q41_shared_10,q41_shared_11,
+q42_shared_9_1,q42_shared_9_2,q42_shared_9_3,q42_shared_9_4,q42_shared_9_5,q42_shared_9_6,q42_shared_9_7,q42_shared_9_8,
+q42_shared_10_1,q42_shared_10_2,q42_shared_10_3,q42_shared_10_4,q42_shared_10_5,q42_shared_10_6,q42_shared_10_7,q42_shared_10_8,
+q42_shared_11_1,q42_shared_11_2,q42_shared_11_3,q42_shared_11_4,q42_shared_11_5,q42_shared_11_6,q42_shared_11_7,q42_shared_11_8,
+q43_shared_9,q43_shared_10,q43_shared_11,
+q118_shared_9_1,q118_shared_9_2,q118_shared_9_3,q118_shared_9_4,q118_shared_9_5,q118_shared_9_6,q118_shared_9_7,q118_shared_9_8,
+q118_shared_10_1,q118_shared_10_2,q118_shared_10_3,q118_shared_10_4,q118_shared_10_5,q118_shared_10_6,q118_shared_10_7,q118_shared_10_8,
+q118_shared_11_1,q118_shared_11_2,q118_shared_11_3,q118_shared_11_4,q118_shared_11_5,q118_shared_11_6,q118_shared_11_7,q118_shared_11_8,
+q304_shared_1,q304_shared_2,q304_shared_3,q304_shared_4,q304_shared_5,q304_shared_6,q304_shared_7,q304_shared_8,q304_shared_9)                         
+BTQ2_PL_analytic_data_unique                                           
+                                        
+```
+
+Unique CL variables
+
+```{r}
+
+BTQ2_CL_analytic_data_shared=BTQ2_CL_analytic_data[common_column_names]
+BTQ2_CL_analytic_data_unique = dplyr::select(BTQ2_CL_analytic_data,response_id,q6_cl,q7_cl,q8_cl,q130_cl
+,q130_cl_4_text,q19_cl,q131_cl,q21_cl,q22_cl,q23_cl
+,q24_cl,q25_cl,
+q27_cl_1,q27_cl_2,q27_cl_3,q27_cl_4,q27_cl_5,q27_cl_6
+,q27_cl_7,q27_cl_8,q27_cl_9,q27_cl_10,q27_cl_11,q27_cl_11_text,
+q29_cl_1,q29_cl_2
+,q29_cl_3,q29_cl_4,q29_cl_5,q29_cl_6,q29_cl_7,q29_cl_8,q29_cl_9,q29_cl_10
+,q29_cl_11,q29_cl_11_text,q34_shared,
+q30_cl_1,q30_cl_2,q30_cl_3,q30_cl_4,q30_cl_5
+,q30_cl_6,q30_cl_7,q30_cl_8,q30_cl_9,q30_cl_9_text,
+q32_cl_1,q32_cl_2,q32_cl_3
+,q32_cl_4,q32_cl_5,q32_cl_6,q32_cl_7,q32_cl_8,q32_cl_9,q32_cl_9_text,
+q33_cl_5
+,q33_cl_6,q33_cl_14,q33_cl_8,q33_cl_2,q33_cl_7,q33_cl_18,q33_cl_3,q33_cl_15,q33_cl_17
+,q33_cl_16,q33_cl_1,q33_cl_13,q33_cl_10,q33_cl_12,q33_cl_11,q33_cl_9,
+q34_cl_5
+,q34_cl_6,q34_cl_14,q34_cl_8,q34_cl_2,q34_cl_7,q34_cl_18,q34_cl_3,q34_cl_15,q34_cl_17
+,q34_cl_16,q34_cl_1,q34_cl_13,q34_cl_10,q34_cl_12,q34_cl_11,q34_cl_9,
+q35_cl_5,q35_cl_6,q35_cl_14,q35_cl_8,q35_cl_2,q35_cl_7,q35_cl_18,q35_cl_3,q35_cl_15,q35_cl_17
+,q35_cl_16,q35_cl_1,q35_cl_13,q35_cl_10,q35_cl_12,q35_cl_11,q35_cl_9,q35_cl_17,
+q307_cl_5,q307_cl_6,q307_cl_14,q307_cl_8,q307_cl_2,q307_cl_7,q307_cl_18,q307_cl_3,q307_cl_15,q307_cl_17
+,q307_cl_16,q307_cl_1,q307_cl_13,q307_cl_10,q307_cl_12,q307_cl_11,q307_cl_9,
+q308_cl_5,q308_cl_6,q308_cl_14,q308_cl_8,q308_cl_2,q308_cl_7,q308_cl_18,q308_cl_3,q308_cl_15,q308_cl_17
+,q308_cl_16,q308_cl_1,q308_cl_13,q308_cl_10,q308_cl_12,q308_cl_11,q308_cl_9,q309_cl,
+q75_shared_13,q75_shared_14, 
+q37_shared_13,q37_shared_14,
+q38_shared_13,q38_shared_14,
+q40_shared_13,q40_shared_14,
+q41_shared_13,q41_shared_14,
+q42_shared_13_1,q42_shared_13_2,q42_shared_13_3,q42_shared_13_4,q42_shared_13_5,q42_shared_13_6,q42_shared_13_7,q42_shared_13_8,
+q42_shared_14_1,q42_shared_14_2,q42_shared_14_3,q42_shared_14_4,q42_shared_14_5,q42_shared_14_6,q42_shared_14_7,q42_shared_14_8,
+q43_shared_13,q43_shared_14,
+q118_shared_13_1,q118_shared_13_2,q118_shared_13_3,q118_shared_13_4,q118_shared_13_5,q118_shared_13_6,q118_shared_13_7,q118_shared_13_8,
+q118_shared_14_1,q118_shared_14_2,q118_shared_14_3,q118_shared_14_4,q118_shared_14_5,q118_shared_14_6,q118_shared_14_7,q118_shared_14_8,
+q303_cl_1,q303_cl_2,q303_cl_3,q303_cl_4,q303_cl_5,q303_cl_6
+,q303_cl_7,q303_cl_8,q303_cl_9,q303_cl_10,q303_cl_11, q306_shared,
+q312_cl_1,q312_cl_2,q312_cl_3,q312_cl_4,q312_cl_5,q312_cl_6,q312_cl_7,q312_cl_8,q312_cl_9,q312_cl_10,q312_cl_11,q312_cl_12,q312_cl_13,
+q314_cl_1,q314_cl_2,q314_cl_3,q314_cl_4,q314_cl_5,q314_cl_6,q314_cl_7,q314_cl_8,q314_cl_9,q314_cl_11,q314_cl_12,q314_cl_13,q314_cl_14,
+q313_cl_1,q313_cl_2,q313_cl_3,q313_cl_4,q313_cl_5,q313_cl_6,q313_cl_7,q313_cl_8,q303_cl_9, q313_cl_10,q313_cl_11,q313_cl_12,q313_cl_13,q313_cl_14,
+q315_shared_1,q315_shared_2,q315_shared_3,q315_shared_4,q315_shared_5,q315_shared_6,q315_shared_7,q315_shared_8,q315_shared_9,q315_shared_10,q315_shared_11,
+q304_shared_1,q304_shared_2,q304_shared_3,q304_shared_4,q304_shared_5,q304_shared_6,q304_shared_7,q304_shared_8,q304_shared_9)
+BTQ2_CL_analytic_data_unique
+```
+
+# Perform outer join
+
+```{r}
+BTQ2_DF_merged_dataframe <- rbind(BTQ2_PL_analytic_data_shared, BTQ2_CL_analytic_data_shared)
+print(BTQ2_DF_merged_dataframe)
+```
+
+Lets merge the dataframes of the unique PL and CL variables by response ID
+
+```{r}
+BTQ2_DF_merged_dataframe_PL_unique_CL_unique <- merge(BTQ2_CL_analytic_data_unique,BTQ2_PL_analytic_data_unique,by="response_id",all.x = TRUE, all.y = TRUE)
+View(BTQ2_DF_merged_dataframe_PL_unique_CL_unique)
+```
+
+Now lets merge
+
+```{r}
+BTQ2_DF_MERGED_DF<- merge(BTQ2_DF_merged_dataframe,BTQ2_DF_merged_dataframe_PL_unique_CL_unique,by="response_id")
+BTQ2_DF_MERGED_DF
+BTQ2_DF_MERGED_DF$RESPONDENT_TYPE<-as.factor(BTQ2_DF_MERGED_DF$RESPONDENT_TYPE)
+summary(BTQ2_DF_MERGED_DF$RESPONDENT_TYPE)
+```
+
+
+Lets screen out the following cases.
+```{r}
+# Load the dplyr package
+library(dplyr)
+
+# List of response_ids to remove
+response_ids_to_remove <- c("R_3ltzF6kW20EVmuK", "R_1gTQ3XVKWolqEhi", "R_3HO1Lrwca4poRFd", "R_1KjVSQRRMsAkizQ", 
+                            "R_6dSV3JJu1ljQMjB", "R_3PZff5S4Ca2ppyB", "R_679cKNzVnX6hYcn", "R_1jjoTK4hnoNlMrw", 
+                            "R_1Si6JOhkIo0hY0F", "R_19EKO2unncySXeh", "R_1EcYhwh4eGGl69j", "R_1wS211epluHhEZp", 
+                            "R_1jqBhQdhfWU2VsE", "R_1527VpluaklTafL", "R_38RQiLm8YYLFcjN", "R_7QQQaHiuYDzZOJC", 
+                            "R_520keI8hyEauyor", "R_6Wgq5uZTCymaYMN", "R_5KTJUul7Pnjf7A5", "R_3rCwy9BIhmXJscQ", 
+                            "R_7sLLnTKzQvFJIFH", "R_1rlrHabZw9dBXid", "R_3EhVA3G5v6RqB8a", "R_65eCG4urhmXiuB3", 
+                            "R_5sBuMNmSlcWHehP", "R_3AiNeea0mmL6UxP", "R_1li3fGGxRzQDPTp", "R_31cTsbpA0QEXFwI", 
+                            "R_5smHkuUxk9iIlEo", "R_33TSnkX7Cx8Fa04", "R_7jTXaimtRuQd9Oj", "R_7SpO1xYeBXs39Lt", 
+                            "R_5H7WK5xG7MhjuYB", "R_78LIxaMwtRnIPVQ", "R_3IBkx4pkyWFrp0R", "R_3MLMrvXco8XDUZS", 
+                            "R_1uJbr9ZTe6ZLYxF", "R_72l0VaDfKpnLqd7", "R_3Hh68xERF29gyad", "R_6q84gRJbUb034Ow", 
+                            "R_59ugqAvJBNPFonR", "R_5U3KopuVb7SCBQJ", "R_3P67mmpVnJcyr3F", "R_7DTNIZAHn15oBeo", 
+                            "R_3Lq3ivI1XBi4ICd", "R_5ojs814ohyKBXY7", "R_5RxtRA90PjXXeWi", "R_6hy7w7tE3YhJOB9", 
+                            "R_3nuThgNirohD1s9", "R_3aBxa3YqYV5rdoR", "R_5zuatyTos10qKIL", "R_6GiFxHPHusVAFyW", 
+                            "R_5c1I7Lr0NGwtAEV", "R_6niUXQObLu4fqbT", "R_7BkRhpbD6VEihbH", "R_5Nyv3XVD3pdIrzo", 
+                            "R_6jlxWtE263PJtjZ", "R_1vcU5a3STPYoXjZ", "R_5fdBYTWEaI1ZYZI", "R_3QDU8PMgBc2DYNo", 
+                            "R_7IzmrpRTzmCHHyT", "R_3T3o03GDG0lMTER", "R_3YHhpuIzjMTqhmp", "R_5zcKfSVAT1nDe9L", 
+                            "R_5nI9fkDsxgpMog6", "R_7LYbmKDWZlcMBgO", "R_1U6puAHZKJEKI62", "R_3WmVgBCJyogIkeZ", 
+                            "R_6dH5dCYsEqKbtpv", "R_1tfno8TcUa93bZ9", "R_6erwWHSSxkQ8kvl", "R_7s1EYSd99W5Uezv", 
+                            "R_35YZKkqgc7Uoqwr", "R_1cuOey4RZLTU1RR", "R_5MWoTNjTwZoXqDL", "R_65KKXlJQN1grlkt", 
+                            "R_6Q5YiShjIOKUTxX", "R_7kWYsF3OGOI4IZX", "R_1aUHIFm5rmFhUGQ", "R_6N3Q9oJCmaKW4gB")
+
+# Remove cases from the dataframe
+BTQ2_DF_MERGED_DF <- BTQ2_DF_MERGED_DF %>%
+  filter(!response_id %in% response_ids_to_remove)
+
+# Display the updated dataframe
+print(BTQ2_DF_MERGED_DF)
+
+```
+Lets write the merged filed
+
+```{r}
+write.csv(BTQ2_DF_MERGED_DF, "BTQ2_DF_MERGED_DF_INCREASED.csv", row.names = FALSE)
+```
+
+```{r}
+colnames(BTQ2_DF_MERGED_DF)
+```

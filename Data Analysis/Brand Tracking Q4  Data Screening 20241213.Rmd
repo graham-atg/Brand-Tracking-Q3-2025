@@ -1,0 +1,293 @@
+---
+title: "Brand Tracking Q4 Data Screening"
+author: "Graham Albert"
+date: "`r Sys.Date()`"
+output: html_document
+---
+
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+getwd()
+```
+
+
+Lets load qualtrics and sjlabelles
+```{r}
+require(qualtRics)
+require(sjlabelled)
+```
+
+Now lets load in the data PL
+```{r}
+cleaned_data <- load_survey_data(
+  api_key = "7kgP8J0RqagC4VJYSuEog6jxzY015PUozbBgbgAt",
+  base_url = "sjc1.qualtrics.com/",
+  surveyID = "SV_bdQw4bCwDcP9KaG"
+)
+require(readr)
+write_csv(cleaned_data,file = 'BTQ4_PL_2024.csv')
+
+```
+
+```{r}
+require(readr)
+BTQ4_PL<-read_csv('BTQ4_PL_2024.csv')
+colnames(BTQ4_PL)
+```
+
+
+Now lets add the respondent type to the dataframe
+```{r}
+BTQ4_PL$RESPONDENT_TYPE <- as.factor(1)
+
+# Reorder columns to move 'RESPONDENT_TYPE' to the first position
+BTQ4_PL  <- BTQ4_PL[, c("RESPONDENT_TYPE", names(BTQ4_PL)[-ncol(BTQ4_PL)])]
+
+# If you want to see the result, you can print the dataframe
+print(BTQ4_PL)
+
+```
+
+
+
+Lets start by subsetting all variables that need to be converted from a character variable to a factor variable
+```{r}
+require(dplyr)
+BTQ4_PL_analytic_data_survey_factor<-dplyr::select(BTQ4_PL,-q3_shared,-q8_pl,-q9_pl, -q11_shared_3_text,-q17_shared_6_text,-q19_shared_9_text,-q144_pl_8_text,-q20_shared,-q236_shared_10_text,-q237_shared_7_text,-q65_shared,-q67_shared)
+colnames(BTQ4_PL_analytic_data_survey_factor)
+```
+
+
+```{R}
+colnames(BTQ4_PL_analytic_data_survey_factor)
+```
+
+Now lets subset out the numeric and character variables and ensure that they are numeric/character that we will not change.
+```{r}
+BTQ4_PL_analytic_data_survey_numeric<-dplyr::select(BTQ4_PL,response_id,q3_shared,q8_pl,q9_pl, q11_shared_3_text,q17_shared_6_text,q19_shared_9_text,q144_pl_8_text,q20_shared,q236_shared_10_text,q237_shared_7_text,q65_shared,q67_shared)
+colnames(BTQ4_PL_analytic_data_survey_numeric)
+```
+
+
+Now we will factorize the variables that should be factored using this subseted dataframe. 
+```{r}
+BTQ4_PL_analytic_data_survey_factorized <- lapply(BTQ4_PL_analytic_data_survey_factor, function(x) as.factor(as.character(x)))
+BTQ4_PL_analytic_data_survey_factorized<-data.frame(BTQ4_PL_analytic_data_survey_factorized) 
+summary(BTQ4_PL_analytic_data_survey_factorized)
+```
+
+Now lets bind the two dataframe
+```{r}
+BTQ4_PL_analytic_data<-merge(BTQ4_PL_analytic_data_survey_factorized,BTQ4_PL_analytic_data_survey_numeric,by="response_id")
+summary(BTQ4_PL_analytic_data)
+names(BTQ4_PL_analytic_data)
+```
+
+# Save the dataframe to a CSV file
+```{r}
+write.csv(BTQ4_PL_analytic_data, "BTQ4_PL_analytic_data_retained.csv", row.names = FALSE)
+colnames(BTQ4_PL_analytic_data)
+```
+
+
+
+
+
+Now lets load in the data CL
+```{r}
+cleaned_data <- load_survey_data(
+  api_key = "7kgP8J0RqagC4VJYSuEog6jxzY015PUozbBgbgAt",
+  base_url = "sjc1.qualtrics.com/",
+  surveyID = "SV_cYDmmmfH5EkWPqK"
+)
+require(readr)
+write_csv(cleaned_data,file = 'BTQ4_CL_2024.csv')
+```
+
+
+
+```{r}
+require(readr)
+BTQ4_CL<-read_csv('BTQ4_CL_2024.csv')
+colnames(BTQ4_CL)
+```
+
+Now lets add the respondent type to the dataframe
+```{r}
+BTQ4_CL$RESPONDENT_TYPE <- as.factor(2)
+
+# Reorder columns to move 'RESPONDENT_TYPE' to the first position
+BTQ4_CL <- BTQ4_CL[, c("RESPONDENT_TYPE", names(BTQ4_CL)[-ncol(BTQ4_CL)])]
+
+# If you want to see the result, you can print the dataframe
+colnames(BTQ4_CL)
+BTQ4_CL
+```
+
+
+
+
+
+
+Now we will:
+- 1. subset out all variables that should be factors
+- 2. apply a function to factor them
+- 3. merge them back with the variables that must remain numeric or character.
+
+
+Now lets subset out the numeric and character variables and ensure that they are numeric/character that we will not change.
+```{r}
+BTQ4_CL_analytic_data_survey_numeric<-dplyr::select(BTQ4_CL,
+                                                    -q3_shared, -q11_shared_3_text,-q17_shared_6_text,-q19_shared_9_text,-q130_cl_4_text,-q20_shared,-q19_cl,-q131_cl,-q23_cl,-q24_cl,-q25_cl,-q27_cl_11_text,-q30_cl_9_text,
+                                                    -q236_shared_10_text,-q237_shared_7_text,-q222_cl_6_text,-q224_cl_6_text,-q225_cl_7_text,-q228_cl_6_text,-q65_shared,-q67_shared)
+colnames(BTQ4_CL_analytic_data_survey_numeric)
+```
+
+
+
+Now lets compute the factor variable.
+```{r}
+BTQ4_CL_analytic_data_survey_factor<-dplyr::select(BTQ4_CL,response_id,q3_shared,q11_shared_3_text,q17_shared_6_text,q19_shared_9_text,q130_cl_4_text,q20_shared,q19_cl,q131_cl,q23_cl,q24_cl,q25_cl,q27_cl_11_text,q30_cl_9_text,q236_shared_10_text,q237_shared_7_text,q222_cl_6_text,q224_cl_6_text,q225_cl_7_text,q228_cl_6_text,q65_shared,q67_shared)
+colnames(BTQ4_CL_analytic_data_survey_factor)
+```
+
+Now we will factorize the variables that should be factored using this subseted dataframe. 
+```{r}
+BTQ4_CL_analytic_data_survey_factorized <- lapply(BTQ4_CL_analytic_data_survey_factor, function(x) as.factor(as.character(x)))
+BTQ4_CL_analytic_data_survey_factorized<-data.frame(BTQ4_CL_analytic_data_survey_factorized) 
+summary(BTQ4_CL_analytic_data_survey_factorized)
+```
+
+Now lets bind the two dataframe
+```{r}
+BTQ4_CL_analytic_data<-merge(BTQ4_CL_analytic_data_survey_factorized,BTQ4_CL_analytic_data_survey_numeric,by="response_id")
+summary(BTQ4_CL_analytic_data)
+names(BTQ4_CL_analytic_data)
+```
+
+# Save the dataframe to a CSV file
+```{r}
+write.csv(BTQ4_CL_analytic_data, "BTQ4_CL_analytic_data_retained.csv", row.names = FALSE)
+BTQ4_CL_analytic_data
+```
+
+
+```{r}
+# Read the CSV file into a data frame
+BTQ4_PL_analytic_data <- read.csv("BTQ4_PL_analytic_data_retained.csv")
+# Print the first few rows of the data frame
+colnames(BTQ4_PL_analytic_data)
+```
+
+
+```{r}
+colnames(BTQ4_CL_analytic_data)
+common_column_names <- intersect(names(BTQ4_PL_analytic_data), names(BTQ4_CL_analytic_data))
+common_column_names
+```
+
+
+```{r}
+colnames(BTQ4_CL_analytic_data)
+```
+
+
+
+Lets determine the variables that both dataframes share
+```{r}
+require(dplyr)
+# Assuming df1 and df2 are your dataframes
+# Replace 'common_column_names' with the actual names of the common columns
+common_column_names <- intersect(names(BTQ4_PL_analytic_data), names(BTQ4_CL_analytic_data))
+BTQ4_PL_analytic_data_shared=BTQ4_PL_analytic_data[common_column_names]
+```
+
+Unique PL variables
+
+```{r}
+BTQ4_PL_analytic_data_unique=dplyr::select(BTQ4_PL_analytic_data,response_id,
+                                        ,q5_pl,q8_pl,q9_pl,q10_pl_1,q10_pl_2,q10_pl_3,q10_pl_4,
+,q11_shared_3_text,q12_pl,q13_pl,q144_pl,q144_pl_8_text,q22_pl_1,q22_pl_2,q22_pl_3,q22_pl_4,q22_pl_5,q22_pl_6,q22_pl_7,q22_pl_8,q22_pl_9,q24_pl_1,q24_pl_2,
+q24_pl_3,q24_pl_4,q24_pl_5,q24_pl_6,q24_pl_7,q24_pl_8,q24_pl_9,q25_pl_10,q25_pl_11,q25_pl_12,q25_pl_3,q25_pl_6,q25_pl_7,q25_pl_8,q25_pl_2,q25_pl_15,q25_pl_14,q25_pl_13,
+,q25_pl_4,q25_pl_1,q25_pl_5,q25_pl_9,q26_pl_10,q26_pl_11,q26_pl_12,q26_pl_3,q26_pl_6,q26_pl_7,q26_pl_8,q26_pl_2,q26_pl_15,q26_pl_14,q26_pl_13,q26_pl_4,q26_pl_1,q26_pl_5,
+q26_pl_9,q27_pl_10,q27_pl_11,q27_pl_12,q27_pl_3,q27_pl_6,q27_pl_7,q27_pl_8,q27_pl_2,q27_pl_15,q27_pl_14,q27_pl_13,q27_pl_4,q27_pl_1,q27_pl_5,q27_pl_9,q233_pl_1,q233_pl_2,q233_pl_3,q233_pl_4,q233_pl_5,q234_pl_1,q234_pl_2,q234_pl_3,q234_pl_4,q234_pl_5,q234_pl_6,
+q75_shared_9,q75_shared_10,q75_shared_11,q75_shared_12,
+q37_shared_9,q37_shared_10,q37_shared_11,q37_shared_12,
+q38_shared_9,q38_shared_10,q38_shared_11,q38_shared_12,
+q40_shared_9,q40_shared_10,q40_shared_11,q40_shared_12,
+q41_shared_9,q41_shared_10,q41_shared_11,q41_shared_12,
+q43_shared_9,q43_shared_10,q43_shared_11,q43_shared_12)                         
+BTQ4_PL_analytic_data_unique                                           
+                                        
+```
+
+Unique CL variables
+```{r}
+BTQ4_CL_analytic_data_shared=BTQ4_CL_analytic_data[common_column_names]
+BTQ4_CL_analytic_data_unique = dplyr::select(BTQ4_CL_analytic_data,response_id,q6_cl,q7_cl,q8_cl,q130_cl
+,q130_cl_4_text,q19_cl,q131_cl,q21_cl,q22_cl,q23_cl
+,q24_cl,q25_cl,q27_cl_1,q27_cl_2,q27_cl_3,q27_cl_4,q27_cl_5,q27_cl_6
+,q27_cl_7,q27_cl_8,q27_cl_9,q27_cl_10,q27_cl_11,q27_cl_11_text,q29_cl_1,q29_cl_2
+,q29_cl_3,q29_cl_4,q29_cl_5,q29_cl_6,q29_cl_7,q29_cl_8,q29_cl_9,q29_cl_10
+,q29_cl_11,q29_cl_11_text,q34_shared,q30_cl_1,q30_cl_2,q30_cl_3,q30_cl_4,q30_cl_5
+,q30_cl_6,q30_cl_7,q30_cl_8,q30_cl_9,q30_cl_9_text,q32_cl_1,q32_cl_2,q32_cl_3
+,q32_cl_4,q32_cl_5,q32_cl_6,q32_cl_7,q32_cl_8,q32_cl_9,q32_cl_9_text,q33_cl_5
+,q33_cl_6,q33_cl_14,q33_cl_8,q33_cl_2,q33_cl_7,q33_cl_3,q33_cl_15,q33_cl_17
+,q33_cl_16,q33_cl_1,q33_cl_13,q33_cl_10,q33_cl_12,q33_cl_11,q33_cl_9,q34_cl_5
+,q34_cl_6,q34_cl_14,q34_cl_8,q34_cl_2,q34_cl_7,q34_cl_3,q34_cl_15,q34_cl_17
+,q34_cl_16,q34_cl_1,q34_cl_13,q34_cl_10,q34_cl_12,q34_cl_11,q34_cl_9,q35_cl_5
+,q35_cl_6,q35_cl_14,q35_cl_8,q35_cl_2,q35_cl_7,q35_cl_3,q35_cl_15,q35_cl_17
+,q35_cl_16,q35_cl_1,q35_cl_13,q35_cl_10,q35_cl_12,q35_cl_11,q35_cl_9,q233_cl_1
+,q233_cl_2,q233_cl_3,q233_cl_4,q233_cl_5,q233_cl_6,q233_cl_7,q234_cl_1,q234_cl_2
+,q234_cl_3,q234_cl_4,q234_cl_5,q234_cl_6,q222_cl,q222_cl_6_text,q223_cl,q224_cl_1,q224_cl_2,q224_cl_3
+,q224_cl_4,q224_cl_5,q224_cl_6,q224_cl_6_text,q225_cl_1,q225_cl_2,q225_cl_3,q225_cl_4
+,q225_cl_5,q225_cl_6,q225_cl_7,q225_cl_7_text,q226_cl_1,q226_cl_2,q226_cl_3,q226_cl_4
+,q226_cl_5,q226_cl_6,q226_cl_7,q226_cl_8,q226_cl_9,q226_cl_10,q227_cl_1,q227_cl_2,q227_cl_3,q227_cl_4
+,q227_cl_3,q227_cl_5,q228_cl_1,q228_cl_2,q228_cl_3,q228_cl_4
+,q228_cl_5,q228_cl_6,q228_cl_6_text,q229_cl,q75_shared_12,q75_shared_13,q75_shared_14,q75_shared_15,
+q37_shared_12,q37_shared_13,q37_shared_14,q37_shared_15,
+q38_shared_12,q38_shared_13,q38_shared_14,q38_shared_15,
+q40_shared_12,q40_shared_13,q40_shared_14,q40_shared_15,
+q41_shared_12,q41_shared_13,q41_shared_14,q41_shared_15,
+q43_shared_12,q43_shared_13,q43_shared_14,q43_shared_15)
+BTQ4_CL_analytic_data_unique
+```
+
+
+
+
+
+
+# Perform outer join
+```{r}
+BTQ4_DF_merged_dataframe <- rbind(BTQ4_PL_analytic_data_shared, BTQ4_CL_analytic_data_shared)
+print(BTQ4_DF_merged_dataframe)
+```
+
+Lets merge the dataframes of the unique PL and CL variables by response ID
+```{r}
+BTQ4_DF_merged_dataframe_PL_unique_CL_unique <- merge(BTQ4_CL_analytic_data_unique,BTQ4_PL_analytic_data_unique,by="response_id",all.x = TRUE, all.y = TRUE)
+View(BTQ4_DF_merged_dataframe_PL_unique_CL_unique)
+```
+
+
+Now lets merge 
+```{r}
+BTQ4_DF_MERGED_DF<- merge(BTQ4_DF_merged_dataframe,BTQ4_DF_merged_dataframe_PL_unique_CL_unique,by="response_id")
+BTQ4_DF_MERGED_DF
+```
+Lets write the merged filed
+```{r}
+write.csv(BTQ4_DF_MERGED_DF, "BTQ4_DF_MERGED_DF_INCREASED.csv", row.names = FALSE)
+```
+
+```{r}
+BTQ4_DF_MERGED_DF
+```
+
+write.csv(BTQ1_DF_MERGED_DF_FILTERED, "BTQ1_DF_MERGED_DF_INCREASED.csv", row.names = FALSE)
+write.csv(BTQ2_DF_MERGED_DF, "BTQ2_DF_MERGED_DF_INCREASED.csv", row.names = FALSE)
+write.csv(BTQ3_DF_MERGED_DF, "BTQ3_DF_MERGED_DF_INCREASED.csv", row.names = FALSE)
+write.csv(BTQ4_DF_MERGED_DF, "BTQ4_DF_MERGED_DF_INCREASED.csv", row.names = FALSE)

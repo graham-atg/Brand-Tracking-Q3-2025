@@ -1,0 +1,3552 @@
+---
+title: "Brand Tracking Q1 2025 Brand Metric Measures"
+author: "Graham Albert"
+toc: true
+number-sections: true
+toc-location: left
+format:
+  pdf:
+    documentclass: report
+    keep-tex: true
+    toc: true
+    toc-depth: 5
+    number-sections: true
+    colorlinks: true
+    highlight-style: github
+execute:
+  echo: false
+  warning: true
+  fig-width: 10
+  fig-height: 4.5
+  fig-format: png
+  fig-asp: 900
+editor: visual
+cache: true
+---
+
+## Running Code
+
+When you click the **Render** button a document will be generated that includes both content and the output of embedded code. You can embed code like this:
+
+```{r}
+#| include: false
+# install_and_load_packages_from_file.R
+install_and_load_packages_from_file <- function(file_path) {
+  # Read the list of packages from the specified text file
+  listOfPackages <- scan(file_path, character(), quote = "")
+  
+  # Install and load packages
+  for (pkg in listOfPackages) {
+    if (!pkg %in% installed.packages()) {
+      install.packages(pkg, dependencies = TRUE)
+    }
+    tryCatch({
+      library(pkg, character.only = TRUE)
+      cat(paste("Loaded package: ", pkg, "\n"))
+    }, error = function(e) {
+      cat(paste("Error loading package: ", pkg, "\n"))
+      cat(paste("Error message: ", conditionMessage(e), "\n"))
+    })
+  }
+}
+
+# Call the function with the file path
+install_and_load_packages_from_file("~/git/Cross-Sell/Functions/required_packages.txt")
+runScriptsInCurrentDirectory <- function(directory = "Functions", skipScripts = character(0)) {
+  # Get the list of R script files in the specified directory
+  scriptFiles <- list.files(directory, pattern = ".R$", full.names = TRUE)
+  
+  # Check if there are any script files
+  if (length(scriptFiles) == 0) {
+    cat(paste("No R script files found in the '", directory, "' directory.\n", sep = ""))
+    return(NULL)
+  }
+  
+  # Iterate through the script files and run each one
+  for (scriptFile in scriptFiles) {
+    # Check if the script should be skipped
+    if (basename(scriptFile) %in% skipScripts) {
+      cat("Skipping script:", scriptFile, "\n")
+      next
+    }
+    
+    cat("Running script:", scriptFile, "\n")
+    
+    # Use tryCatch to run the script with a 15-second timeout
+    tryCatch({
+      system.time({
+        source(scriptFile, local = TRUE)
+      })$elapsed
+    }, error = function(e) {
+      cat("Script", scriptFile, "was not run (timed out).\n")
+    })
+    
+    cat("Script", scriptFile, "completed.\n")
+  }
+}
+
+
+# Specify the scripts to skip (replace with your script filenames)
+scriptsToSkip <- c("create_summary_table.R","runScriptsInCurrentDirectory.R")
+
+# Call the function to run scripts in the current directory, skipping specified scripts
+runScriptsInCurrentDirectory(directory = "Functions",skipScripts = scriptsToSkip)
+
+library(tidyr)
+library(dplyr)
+library(reshape2)
+# This processing pipeline combines three functions to transform and process data.
+# 1. It starts by converting the data from wide to long format using the to_long function.
+# 2. Then it replaces NAs in the resulting dataframe with a specified default value.
+# 3. Next, it factors all columns in the dataframe using the factorize_column function.
+# 4. Finally, it calculates counts and percentages by grouping the last two columns (variable and value)
+#    using the calculate_count_and_percentage function.
+# Function to transform data from wide to long format with multiple id.vars
+to_long <- function(dataframe, id.vars, variable.name, value.name) {
+  if (!is.character(id.vars)) {
+    stop("id.vars must be a character vector.")
+  }
+  
+  melted_data <- reshape2::melt(dataframe, id.vars = id.vars, variable.name = variable.name, value.name = value.name)
+  
+  return(melted_data)
+}
+
+# Function to factorize all columns in a dataframe
+factorize_column <- function(dataframe, columns = NULL) {
+  if (is.null(columns)) {
+    columns <- names(dataframe)
+  }
+  
+  for (col in columns) {
+    if (is.factor(dataframe[[col]])) {
+      next
+    }
+    
+    dataframe[[col]] <- as.factor(dataframe[[col]])
+  }
+  
+  return(data.frame(dataframe))
+}
+
+# Function to calculate counts and percentages by grouping columns
+calculate_count_and_percentage <- function(dataframe, group_columns = NULL) {
+  if (is.null(group_columns)) {
+    group_columns <- names(dataframe)[c(length(dataframe) - 1, length(dataframe))]
+  }
+  
+  result <- dataframe %>%
+    group_by(!!!syms(group_columns)) %>%
+    summarise(count = n()) %>%
+    mutate(perc = count / sum(count))
+    
+  return(data.frame(result))
+}
+
+# Updated process_data_pipeline function without total_rows
+process_data_pipeline_single_column<- function(dataframe, id.var = NULL, default_value = 0, group_column = NULL) {
+  df_long_data <- to_long(dataframe, id.vars = id.var, variable.name = "variable", value.name = "value")
+  df_long_data <- replace(df_long_data, is.na(df_long_data), default_value)
+  df_long_data <- factorize_column(df_long_data)
+  df_long_data <- data.frame(df_long_data)
+  result <- calculate_count_and_percentage(df_long_data, group_columns = group_column)
+  result <- result[result$value != default_value, ]
+  return(result)
+}
+library(extrafont)
+library(magick)
+library(jtools)
+library(ggplot2)
+library(reshape2)
+library(scales)
+
+#The bar_plot_percent function creates a bar plot with percentages. It takes a dataframe,
+#dataframe, and the names of the x-axis variable, x_var, the y-axis variable, y_var, and 
+#the fill variable, fill_var. Additional optional arguments include plot_name, facet_var, main_title
+#, x_axis_label, y_axis_label, and y_limits. The function saves the plot as a PNG file and returns the plot object.
+
+# Function to create a bar plot with percentages
+bar_plot_percent <- function(dataframe, x_var, y_var = "perc", fill_var, plot_name = "default_plot.png", facet_var = NULL, main_title = NULL, x_axis_label = NULL, y_axis_label = "Pct Selected", y_limits = c(0, 1)) {
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(x = reorder(!!as.name(x_var), desc(!!as.name(y_var))), y = !!as.name(y_var), fill = factor(!!as.name(fill_var)))) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_text(stat = 'identity', aes(label = round(!!as.name(y_var) * 100)), vjust = 1, size = 2, colour = "white") +
+    scale_fill_manual(values = rep(custom_palette, length.out = n_distinct(dataframe[[fill_var]]))) +
+    expand_limits(y = y_limits) +  # Adjust y-axis limits
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Scale y-axis to display percentages
+  p <- p + scale_y_continuous(labels = scales::percent)
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 1800)
+  return(p)
+  print(p)
+}
+
+
+
+#The function bar_plot_percent_ordered creates a bar plot with percentages, where 
+#the bars are ordered by the values of the y-variable. It takes a dataframe, dataframe, 
+#and the names of the x-axis variable, x_var, the y-axis variable, y_var, and the fill variable, 
+#fill_var. It also accepts additional optional arguments such as plot_name, facet_var, main_title, x_axis_label,
+#y_axis_label, and y_limits. The function saves the plot as a PNG file and returns the plot object.
+
+
+# Updated function to create a bar plot with percentages, bars ordered by y values
+
+# Updated function to create a bar plot with percentages, bars ordered by y values
+bar_plot_percent_ordered <- function(dataframe, x_var, y_var = "Percentage", fill_var, plot_name = "default_plot.png", facet_var = NULL, main_title = NULL, x_axis_label = NULL, y_axis_label = "Pct Selected", y_limits = c(0, 1)) {
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(x = reorder(stringr::str_wrap(!!as.name(x_var), 5), -!!as.name(y_var)), y = !!as.name(y_var), fill = factor(!!as.name(fill_var)))) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_text(stat = 'identity', aes(label = round(!!as.name(y_var) * 100)),   vjust = 1, size = 3, colour = "white") +
+    scale_fill_manual(values = rep(custom_palette, length.out = n_distinct(dataframe[[fill_var]]))) +
+    expand_limits(y = y_limits) +  # Adjust y-axis limits
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 8, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Scale y-axis to display percentages
+  p <- p + scale_y_continuous(labels = scales::percent)
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 12, height = 4.5, dpi = 1800)
+  return(p) 
+  print(p)
+}
+
+
+library(ggplot2)
+library(scales)
+
+# Function definition
+bar_plot_percent <- function(dataframe, x_var, y_var = "Percentage", fill_var, plot_name = "default_plot.png", facet_var = NULL, main_title = NULL, x_axis_label = NULL, y_axis_label = "Pct Selected", y_limits = c(0, 1)) {
+  # Convert x_var to factor with ordered levels
+  dataframe[[x_var]] <- factor(dataframe[[x_var]], levels = unique(dataframe[[x_var]]))
+  
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(x = !!as.name(x_var), y = !!as.name(y_var), fill = factor(!!as.name(fill_var)))) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_text(stat = 'identity', aes(label = round(!!as.name(y_var) * 100)), vjust = 1, size = 2, colour = "white") +
+    scale_fill_manual(values = rep(custom_palette, length.out = n_distinct(dataframe[[fill_var]]))) +
+    expand_limits(y = y_limits) +  # Adjust y-axis limits
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust=1)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Scale y-axis to display percentages
+  p <- p + scale_y_continuous(labels = scales::percent)
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 12, height = 4.5, dpi = 1800)
+  return(p)
+}
+
+#This function takes x,y and fill variables and generates a bar plot using theme
+# and color pallette for presentations at Acrisure.
+
+
+
+#The create_bar_chart function generates a bar plot using themes and a color palette 
+#for presentations at Acrisure, taking as inputs data (the dataframe), x_var (the x-axis variable), 
+#fill_var (the variable for fill), and facet_var (optional variable for facets).
+#The function also has parameters for plot_name (output plot filename), percentage
+#(whether to display percentages or counts), and main_title (title for the plot)
+
+create_bar_chart <- function(data, x_var, fill_var = x_var, facet_var = NULL, plot_name = "defaultplot.png", percentage = FALSE, main_title = NULL) {
+  # Load required packages
+  library(extrafont)
+  library(magick)
+  library(jtools)
+  library(ggplot2)
+  library(reshape2)
+  library(scales)
+  
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C", "#313131")
+  
+  # Define the common theme
+  apatheme <- theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 4, family = 'sans'),
+      legend.title = element_blank(),
+      plot.title = element_text(hjust = 0.5),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 55, vjust = 1, hjust = 1)
+    )
+  
+  # Create a ggplot
+  p <- ggplot(data, aes(x = !!as.name(x_var), fill = !!as.name(fill_var))) +
+    geom_bar(stat = ifelse(percentage, "identity", "count")) +
+    apatheme +
+    scale_fill_manual(values = rep(custom_palette, length.out = n_distinct(data[[fill_var]]))) +
+    labs(title = ifelse(!is.null(main_title), main_title, plot_name), y = ifelse(percentage, "Pct. Selected", "Count"), x = NULL)
+  
+  # Add facet_wrap if facet_var is not NULL
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Calculate and add percentage or count labels to y-axis based on the 'percentage' argument
+  if (percentage) {
+    p <- p + geom_text(stat = 'identity', aes(label = paste0(round(100 * count / sum(count)), "%")), vjust = 1, size = 3, colour = "white")
+  } else {
+    p <- p + geom_text(stat = 'count', aes(label = after_stat(count)), vjust = 1, size = 3, colour = "white") # Set label text color to white
+  }
+  
+  # Display the plot
+  print(p)
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 1800)
+}
+
+
+# Updated function to create a bar plot with percentages and bars ordered by y values
+create_bar_chart_ordered <- function(dataframe, x_var, y_var, fill_var, plot_name = "default_plot.png", facet_var = NULL, main_title = NULL, x_axis_label = NULL, y_axis_label = "Count", y_limits = c(0, 1)) {
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(x = reorder(!!as.name(x_var), -!!as.name(y_var)), y = !!as.name(y_var), fill = factor(!!as.name(fill_var)))) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_text(stat = 'identity', aes(label = sprintf("%.2f", !!as.name(y_var))), vjust = 1, size = 2, colour = "white") +
+    scale_fill_manual(values = rep(custom_palette, length.out = n_distinct(dataframe[[fill_var]]))) +
+    expand_limits(y = y_limits) +  # Adjust y-axis limits
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Scale y-axis to display numbers rounded to two decimals
+  p <- p + scale_y_continuous()
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 1800)
+  return(p)
+}
+
+
+
+
+#The bar_chart_count function generates a bar chart with counts, considering inputs such as dataframe (the dataframe),
+#x_var (the x-axis variable), fill_var (the variable for fill), plot_name (output plot filename), main_title (title for the plot), 
+#x_axis_label (label for the x-axis), and y_axis_label (label for the y-axis).
+
+# Updated function to create a bar chart with counts
+bar_chart_count <- function(dataframe, x_var, fill_var, facet_var = NULL, plot_name = "default_plot.png", main_title = NULL, x_axis_label = NULL, y_axis_label = "Count") {
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(x = factor(!!as.name(x_var)), fill = factor(!!as.name(fill_var)))) +
+    geom_bar() +
+    scale_fill_manual(values = custom_palette) +
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 1800)
+  return(p)
+}
+
+
+
+
+library(ggplot2)
+bar_chart_count_with_error <- function(dataframe, x_var, y_var, fill_var, facet_var = NULL, plot_name = "default_plot.png", main_title = NULL, x_axis_label = NULL, y_axis_label = "Count") {
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(x = factor(!!as.name(x_var)), y = !!as.name(y_var), fill = factor(!!as.name(fill_var)))) +
+    geom_bar(stat = "identity") +
+    geom_errorbar(
+      aes(x = factor(!!as.name(x_var)), ymin = !!as.name(y_var) - sd, ymax = !!as.name(y_var) + sd),
+      width = 0.2, colour = "black"
+    ) +
+    scale_fill_manual(values = custom_palette) +
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 1800)
+  return(p)
+}
+
+library(tidyr)
+library(dplyr)
+library(reshape2)
+
+# Function to transform data from wide to long format with multiple id.vars
+#to_long takes a dataframe and transforms it from wide to long format using the reshape2 package. 
+#It takes dataframe as input and outputs the transformed data melted_data.
+to_long <- function(dataframe, id.vars, variable.name, value.name) {
+  if (!is.character(id.vars)) {
+    stop("id.vars must be a character vector.")
+  }
+  melted_data <- reshape2::melt(dataframe, id.vars = id.vars, variable.name = variable.name, value.name = value.name)
+  return(melted_data)
+}
+
+# Function to factorize all columns in a dataframe
+
+#factorize_column converts all columns in the dataframe into factors, ensuring
+#that each column is a factor variable. It takes dataframe as input and outputs
+#the dataframe with all columns converted to factors.
+# Function to factorize columns while maintaining the order of the levels
+# Function to factorize columns while maintaining the original levels order
+factorize_column <- function(dataframe, columns = NULL, levels = NULL) {
+  if (is.null(columns)) {
+    columns <- names(dataframe)
+  }
+  for (col in columns) {
+    if (is.factor(dataframe[[col]])) {
+      next
+    }
+    if (is.null(levels)) {
+      dataframe[[col]] <- as.factor(dataframe[[col]])
+    } else {
+      dataframe[[col]] <- factor(dataframe[[col]], levels = unique(dataframe[[col]]))
+    }
+  }
+  return(dataframe)
+}
+
+
+# Function to calculate counts and percentages by grouping columns
+# Updated calculate_count_and_percentage function to calculate counts and percentages within each level of group_columns
+
+#calculate_count_and_percentage calculates counts and percentages by grouping columns 
+#specified in group_columns. It groups the dataframe, calculates the count and percentage within each group, 
+#and then ungroups the data. It takes dataframe as input and outputs the resulting calculated counts and percentages.
+
+calculate_count_and_percentage <- function(dataframe, group_columns = NULL) {
+  if (is.null(group_columns)) {
+    group_columns <- names(dataframe)[c(length(dataframe) - 1, length(dataframe))]
+  }
+  
+  result <- dataframe %>%
+    group_by(!!!syms(group_columns)) %>%
+    summarise(count = n()) %>%
+    mutate(perc = count / sum(count)) %>%
+    ungroup()  # Remove grouping
+  
+  return(result)
+}
+
+#new_percent calculates new percentages by multiplying the existing percentage (perc) 
+#in the dataframe with the difference between total_columns and the length of id_vars. 
+#It takes dataframe as input and outputs the dataframe with the new percentage added.
+
+# Function to calculate new percentages
+new_percent <- function(dataframe, id_vars, total_columns) {
+  require(dplyr)
+  difference <- total_columns - length(id_vars)
+  dataframe <- dataframe %>%
+    mutate(new_perc = perc * difference)
+  return(dataframe)
+}
+
+# Updated process_data_pipeline function without total_rows argument
+#process_data_pipeline_multiple_columns is an updated version of the data processing pipeline function. 
+#It performs the following steps: transforming data from wide to long format, replacing NAs with a default value, 
+#converting all columns to factors, ensuring the data is in a dataframe, calculating count and percentage, 
+#removing rows where the value column equals 0, and finally calculating new percentages. 
+#It takes dataframe as input and outputs the processed data.
+
+process_data_pipeline_multiple_columns <- function(dataframe, id.var = NULL, default_value = 0, group_column = NULL) {
+  # Step 1: Transform data from wide to long format using to_long
+  df_long_data <- to_long(dataframe, id.vars = id.var, variable.name = "variable", value.name = "value")
+  
+  # Step 2: Replace NAs with default_value
+  df_long_data <- replace(df_long_data, is.na(df_long_data), default_value)
+  
+  # Step 3: Factorize all columns
+  df_long_data <- factorize_column(df_long_data)
+  
+  # Step 4: Ensure the data is in a data.frame
+  df_long_data <- data.frame(df_long_data)
+  
+  # Step 5: Calculate count and percentage with the specified group_column
+  result <- calculate_count_and_percentage(df_long_data, group_columns = group_column)
+  
+  # Step 6: Remove rows where value column equals 0
+  result <- result[result$value != default_value, ]
+  
+  # Step 7: Calculate new percentages
+  result <- new_percent(result, id_vars = id.var, total_columns = ncol(dataframe))
+  
+  return(result)
+}
+
+#| include: false
+#The compute_mean_and_se function computes the mean and standard error for all columns
+#except the first two (ID and Name) in a dataframe, taking dataframe as an input and an 
+#optional column_names parameter for specific columns.
+
+#The compute_mean_and_se_grouped function, which utilizes the dplyr package, computes 
+#the mean and standard error grouped by a categorical variable, taking dataframe as an 
+#input and optional parameters such as column_names for specific columns and groupby for the grouping variable. 
+#This function also checks for numeric columns and skips non-numeric ones.
+
+
+#Compute mean and SE for all columns except the first two (ID and Name)
+compute_mean_and_se <- function(dataframe, column_names = NULL) {
+  # If column_names is not specified, select all columns except the first two
+  if (is.null(column_names)) {
+    column_names <- names(dataframe)[3:length(dataframe)]
+  }
+  
+  # Initialize an empty dataframe to store the results
+  result_df <- data.frame(Column = character(0), Mean = numeric(0), SE = numeric(0))
+  
+  # Loop through the specified column names
+  for (col_name in column_names) {
+    # Check if the column is a factor
+    if (is.factor(dataframe[[col_name]])) {
+      # Convert factor to numeric
+      dataframe[[col_name]] <- as.numeric(dataframe[[col_name]])
+    }
+    
+    # Subset the dataframe to exclude NA values in the current column
+    subset_df <- dataframe[!is.na(dataframe[[col_name]]), ]
+    
+    # Compute the mean and standard error
+    mean_val <- mean(subset_df[[col_name]])
+    se_val <- sd(subset_df[[col_name]]) / sqrt(length(subset_df[[col_name]]))
+    
+    # Create a new row for the result dataframe
+    result_row <- data.frame(Column = col_name, Mean = mean_val, SE = se_val)
+    
+    # Append the result row to the result dataframe
+    result_df <- rbind(result_df, result_row)
+  }
+  
+  return(result_df)
+}
+
+
+#Compute mean and se grouped by a categorical variab;le
+library(dplyr)
+
+compute_mean_and_se_grouped <- function(dataframe, column_names = NULL, groupby = NULL) {
+  # If column_names is not specified, select all columns except the first two
+  if (is.null(column_names)) {
+    column_names <- names(dataframe)[3:length(dataframe)]
+  }
+  
+  # Initialize an empty dataframe to store the results
+  result_df <- data.frame(Column = character(0), Group = character(0), Mean = numeric(0), SE = numeric(0))
+  
+  # Loop through the specified column names
+  for (col_name in column_names) {
+    # Check if the column is numeric
+    if (is.numeric(dataframe[[col_name]])) {
+      # If groupby is specified, calculate mean and SE within each group using dplyr
+      if (!is.null(groupby)) {
+        grouped_data <- dataframe %>%
+          group_by_at(vars(all_of(groupby))) %>%
+          summarise(Mean = mean(.data[[col_name]], na.rm = TRUE),
+                    SE = sd(.data[[col_name]], na.rm = TRUE) / sqrt(n())) %>%
+          mutate(Column = col_name)
+        
+        result_df <- bind_rows(result_df, grouped_data)
+      } else {
+        # Subset the dataframe to exclude NA values in the current column
+        subset_df <- dataframe[!is.na(dataframe[[col_name]]), ]
+        
+        # Compute the mean and standard error
+        mean_val <- mean(subset_df[[col_name]])
+        se_val <- sd(subset_df[[col_name]]) / sqrt(length(subset_df[[col_name]]))
+        
+        # Create a new row for the result dataframe
+        result_row <- data.frame(Column = col_name, Group = "Overall", Mean = mean_val, SE = se_val)
+        
+        # Append the result row to the result dataframe
+        result_df <- bind_rows(result_df, result_row)
+      }
+    } else {
+      cat("Column", col_name, "is not numeric. Skipping...\n")
+    }
+  }
+  
+  return(result_df)
+}
+
+library(wordcloud)
+library(tm)
+library(RColorBrewer)
+
+# List of common stop words in English
+stop_words <- c("i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves",
+                "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their",
+                "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was",
+                "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and",
+                "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between",
+                "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off",
+                "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any",
+                "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+                "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now", "d", "ll", "m", "o", "re", "ve", "y",
+                "ain", "aren", "couldn", "didn", "doesn", "hadn", "hasn", "haven", "isn", "ma", "mightn", "mustn", "needn", "shan",
+                "shouldn", "wasn", "weren", "won", "wouldn")
+
+generate_wordcloud <- function(dataframe, text_column, output_filename) {
+  # Parameter validation
+  if (!text_column %in% colnames(dataframe)) {
+    stop("The specified text column does not exist in the dataframe.")
+  }
+  if (nrow(dataframe) == 0) {
+    stop("The dataframe is empty.")
+  }
+  
+  tryCatch({
+    # Create a Corpus from the text_column
+    corpus <- Corpus(VectorSource(dataframe[[text_column]]))
+    
+    # Convert to lowercase and remove punctuation
+    corpus <- tm_map(corpus, content_transformer(tolower))
+    corpus <- tm_map(corpus, removePunctuation)
+    
+    # Remove common stop words
+    corpus <- tm_map(corpus, removeWords, stop_words)
+    
+    # Create a Document-Term Matrix
+    dtm <- DocumentTermMatrix(corpus)
+    
+    # Convert the Document-Term Matrix to a matrix
+    word_freq_matrix <- as.matrix(dtm)
+    
+    # Calculate word frequencies
+    word_freqs <- colSums(word_freq_matrix)
+    
+    # Create a data frame of word frequencies
+    word_freq_df <- data.frame(word = names(word_freqs), freq = word_freqs)
+    
+    # Filter out words that are two letters or shorter
+    word_freq_df <- word_freq_df[nchar(as.character(word_freq_df$word)) > 2, ]
+    
+    # Set up the word cloud plot dimensions
+    par(mar = rep(1, 4))  # Adjust the margins as needed
+    
+    # Create a word cloud with the specified color palette and white background
+    wordcloud(
+      words = word_freq_df$word,
+      freq = word_freq_df$freq,
+      scale = c(3, 0.5),
+      min.freq = 1,
+      colors = c("#002A4E", "#36749D", "#85714D", "#000000", "#004F51", "#95174C", "#313131"),  # Specified color palette
+      bg = "white"
+    )
+    
+    # Save the word cloud as a PNG file
+    png(filename = paste0(output_filename, ".png"), width = 800, height = 600, res = 100) # Adjust width, height, and res as needed
+    print(wordcloud(words = word_freq_df$word, freq = word_freq_df$freq, scale = c(3, 0.5), min.freq = 1, 
+                    colors = c("#002A4E", "#36749D", "#85714D", "#000000", "#004F51", "#95174C", "#313131"), bg = "white"))
+    dev.off() # Close the PNG device
+  }, error = function(e) {
+    cat("An error occurred: ", conditionMessage(e), "\n")
+  })
+}
+
+
+library(ggplot2)
+library(dplyr)
+library(ggplot2)
+library(dplyr)
+
+# Create a sample custom color palette
+custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C", "#FAF9F6")
+
+# Function to plot the frequency of the top 10 phrases
+plot_top_phrases <- function(dataframe, column_name, plot_name = "top_phrases_plot.png") {
+  # Group and count the phrases in the specified column
+  phrase_counts <- dataframe %>%
+    group_by(!!sym(column_name)) %>%
+    summarize(Count = n()) %>%
+    arrange(desc(Count)) %>%
+    slice_head(n = 10)
+  
+  # Determine the number of unique phrases
+  num_unique_phrases <- nrow(phrase_counts)
+  
+  # Create a fill column to assign unique colors from the custom palette
+  phrase_counts$Fill <- rep(custom_palette, length.out = num_unique_phrases)
+  
+  # Create a ggplot bar chart
+  p <- ggplot(phrase_counts, aes(x = reorder(!!sym(column_name), -Count), y = Count, fill = Fill)) +
+    geom_bar(stat = "identity") +
+    labs(title = paste("Top 10 Phrases in", column_name), y = "Frequency") +
+    scale_fill_identity() +  # Use the assigned colors
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    )
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 300)
+  
+  # Display the plot
+  print(p)
+}
+library(ggplot2)
+library(dplyr)
+
+# Create a sample custom color palette
+custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C", "#FAF9F6")
+
+# Function to plot the frequency of the top 10 phrases
+plot_top_phrases <- function(dataframe, column_name, plot_name = "top_phrases_plot.png") {
+  # Group and count the phrases in the specified column
+  phrase_counts <- dataframe %>%
+    group_by(!!sym(column_name)) %>%
+    summarize(Count = n()) %>%
+    arrange(desc(Count)) %>%
+    slice_head(n = 10)
+  
+  # Determine the number of unique phrases
+  num_unique_phrases <- nrow(phrase_counts)
+  
+  # Create a fill column to assign unique colors from the custom palette
+  phrase_counts$Fill <- rep(custom_palette, length.out = num_unique_phrases)
+  
+  # Create a ggplot bar chart
+  p <- ggplot(phrase_counts, aes(x = reorder(!!sym(column_name), -Count), y = Count, fill = Fill)) +
+    geom_bar(stat = "identity") +
+    labs(title = paste("Top 10 Phrases in", column_name), y = "Frequency") +
+    scale_fill_identity() +  # Use the assigned colors
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    )
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 300)
+  
+  # Display the plot
+  print(p)
+}
+
+
+
+# Explanation of the Custom Horizontal Bar Plot Function:
+# This function takes a dataframe and several customizable parameters to create a horizontal bar plot using ggplot2.
+# Users can specify the x-axis variable, y-axis variable, fill variable, plot name, facet variable for faceted plots,
+# main title, x-axis label, y-axis label, and y-axis limits.
+# Load required libraries
+library(tidyverse)
+library(scales)
+
+# Custom color palette
+library(ggplot2)
+
+# Function to create a customizable horizontal bar plot
+create_horizontal_bar_plot <- function(
+    dataframe,
+    x_var,
+    y_var = "perc",
+    fill_var,
+    plot_name = "default_plot.png",
+    main_title = NULL,
+    x_axis_label = NULL,
+    y_axis_label = "Pct Selected",
+    y_limits = c(0, 1)
+) {
+  p <- ggplot(dataframe, aes(x = {{x_var}}, y = {{y_var}}, fill = {{fill_var}})) +
+    geom_col() +
+    geom_text(aes(label = scales::percent({{y_var}})),
+              position = position_stack(vjust = 0.5),
+              color = "white",
+              size = 2.5) +
+    coord_flip() +
+    scale_x_discrete() +
+    scale_fill_manual(values = custom_palette) +
+    labs(
+      title = ifelse(is.null(main_title), "", main_title),
+      x = ifelse(is.null(x_axis_label), "", x_axis_label),
+      y = ifelse(is.null(y_axis_label), "", y_axis_label)
+    ) +
+    theme_minimal() +
+    ylim(y_limits)
+  
+  ggsave(plot_name, plot = p, width = 10, height = 6, dpi = 300)
+  return(p)
+}
+
+# Example usage:
+set.seed(123)
+test_df <- data.frame(
+  Category = rep(c("A", "B", "C"), each = 3),
+  Value = runif(9),
+  Group = rep(c("Group1", "Group2", "Group3"), times = 3)
+)
+
+custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+
+create_horizontal_bar_plot(
+  dataframe = test_df,
+  x_var = Category,
+  y_var = Value,
+  fill_var = Group,
+  plot_name = "custom_plot.png",
+  main_title = "Custom Plot",
+  x_axis_label = "X-Axis Label",
+  y_axis_label = "Custom Y-Axis Label",
+  y_limits = c(0, 1)
+)
+
+
+library(tidyverse)
+library(scales)
+library(reshape2)
+
+
+# Main pipeline function
+custom_pipeline <- function(
+    dataframe,
+    variable_columns,
+    Rating
+) {
+  dataframe %>%
+    pivot_longer(cols = all_of(variable_columns), names_to = "Variable", values_to = "Value") %>%
+    group_by(Variable, Value) %>%
+    summarise(Count = n()) %>%
+    ungroup() %>%
+    mutate(
+      Proportion = if_else(
+        Value %in% Rating,
+        Count / sum(Count),
+        NA_real_
+      ),
+      Percentage = scales::percent(Proportion, accuracy = 1)
+    ) %>%
+    arrange(Variable)
+}
+
+# Example usage of the custom_pipeline function
+set.seed(123)
+test_df <- data.frame(
+  response_id = 1:100,
+  q1 = sample(c("A", "B", "C", "D"), 100, replace = TRUE),
+  q2 = sample(c("X", "Y", "Z"), 100, replace = TRUE),
+  q3 = sample(c("Yes", "No"), 100, replace = TRUE)
+)
+
+custom_result <- custom_pipeline(
+  dataframe = test_df,
+  variable_columns = c("q1", "q2", "q3"),
+  Rating = c("A", "X", "Yes")
+)
+
+print(custom_result)
+
+
+library(extrafont)
+library(magick)
+library(jtools)
+library(ggplot2)
+library(reshape2)
+library(scales)
+
+#The bar_plot_percent function creates a bar plot with percentages. It takes a dataframe,
+#dataframe, and the names of the x-axis variable, x_var, the y-axis variable, y_var, and 
+#the fill variable, fill_var. Additional optional arguments include plot_name, facet_var, main_title
+#, x_axis_label, y_axis_label, and y_limits. The function saves the plot as a PNG file and returns the plot object.
+
+# Function to create a bar plot with percentages
+bar_plot_percent <- function(dataframe, x_var, y_var = "perc", fill_var, plot_name = "default_plot.png", facet_var = NULL, main_title = NULL, x_axis_label = NULL, y_axis_label = "Pct Selected", y_limits = c(0, 1)) {
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(x = reorder(stringr::str_wrap(!!as.name(x_var), 15), desc(!!as.name(y_var))), y = !!as.name(y_var), fill = factor(!!as.name(fill_var)))) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_text(stat = 'identity', aes(label = round(!!as.name(y_var) * 100)),   vjust = 1, size = 3, colour = "white") +
+    scale_fill_manual(values = rep(custom_palette, length.out = n_distinct(dataframe[[fill_var]]))) +
+    expand_limits(y = y_limits) +  # Adjust y-axis limits
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 8, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 0, vjust = 1, hjust=0.5)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Scale y-axis to display percentages
+  p <- p + scale_y_continuous(labels = scales::percent)
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 1800)
+  return(p)
+  print(p)
+}
+
+
+
+#The function bar_plot_percent_ordered creates a bar plot with percentages, where 
+#the bars are ordered by the values of the y-variable. It takes a dataframe, dataframe, 
+#and the names of the x-axis variable, x_var, the y-axis variable, y_var, and the fill variable, 
+#fill_var. It also accepts additional optional arguments such as plot_name, facet_var, main_title, x_axis_label,
+#y_axis_label, and y_limits. The function saves the plot as a PNG file and returns the plot object.
+
+
+# Updated function to create a bar plot with percentages, bars ordered by y values
+bar_plot_percent_ordered <- function(dataframe, x_var, y_var = "Percentage", fill_var, plot_name = "default_plot.png", facet_var = NULL, main_title = NULL, x_axis_label = NULL, y_axis_label = "Pct Selected", y_limits = c(0, 1)) {
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(x = reorder(stringr::str_wrap(!!as.name(x_var), 15), -!!as.name(y_var)), y = !!as.name(y_var), fill = factor(!!as.name(fill_var)))) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_text(stat = 'identity', aes(label = round(!!as.name(y_var) * 100)),   vjust = 1, size = 3, colour = "white") +
+    scale_fill_manual(values = rep(custom_palette, length.out = n_distinct(dataframe[[fill_var]]))) +
+    expand_limits(y = y_limits) +  # Adjust y-axis limits
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 8, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 0, vjust = 1, hjust = 0.5)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Scale y-axis to display percentages
+  p <- p + scale_y_continuous(labels = scales::percent)
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 1800)
+  return(p) 
+  print(p)
+}
+
+# Example usage:
+data_df <- data.frame(
+  Category = rep(c("A", "B", "C", "D"), each = 4),
+  Percentage = runif(16, min = 0, max = 100)
+  
+)
+
+bar_plot_percent(
+  dataframe = data_df,
+  x_var = "Category",        # Use quotes for variable names
+  y_var = "Percentage",      # Use quotes for variable names
+  fill_var = "Category",  # Use quotes for variable names
+  plot_name = "bar_plot_percentage.png",
+  main_title = "Bar Plot Example",
+  x_axis_label = "Categories",
+  y_axis_label = "Percentage"
+)
+
+
+library(ggplot2)
+library(scales)
+
+# Sample dataframe for testing
+data_df <- data.frame(
+  Category = as.factor(c(1, 2, 3, 4, 5, 4, 1, 3, 2, 5)),
+  Percentage = runif(10, min = 0, max = 100),
+  Group = rep(c("A", "B"), each = 5)
+)
+
+# Function definition
+bar_plot_percent <- function(dataframe, x_var, y_var = "Percentage", fill_var, plot_name = "default_plot.png", facet_var = NULL, main_title = NULL, x_axis_label = NULL, y_axis_label = "Pct Selected", y_limits = c(0, 1)) {
+  # Convert x_var to factor with ordered levels
+  dataframe[[x_var]] <- factor(dataframe[[x_var]], levels = unique(dataframe[[x_var]]))
+  
+  # Define the color palette
+  custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+  
+  # Create a ggplot
+  p <- ggplot(dataframe, aes(stringr::str_wrap(!!as.name(x_var), 15), y = !!as.name(y_var), fill = factor(!!as.name(fill_var)))) +
+    geom_bar(stat = "identity", width = 0.4) +
+    geom_text(stat = 'identity', aes(label = round(!!as.name(y_var) * 100)),   vjust = 1, size = 0, colour = "white") +
+    scale_fill_manual(values = rep(custom_palette, length.out = n_distinct(dataframe[[fill_var]]))) +
+    expand_limits(y = y_limits) +  # Adjust y-axis limits
+    labs(title = main_title, y = y_axis_label, x = x_axis_label) +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 8, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 0, vjust = 1, hjust=0.5)
+    )
+  
+  # Apply facet_wrap if facet_var is specified
+  if (!is.null(facet_var)) {
+    p <- p + facet_wrap(vars(!!as.name(facet_var)))
+  }
+  
+  # Scale y-axis to display percentages
+  p <- p + scale_y_continuous(labels = scales::percent)
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 1800)
+  return(p)
+}
+
+# Test the function
+bar_plot_percent(data_df, "Category", "Percentage", "Group", "bar_plot_ordered.png", main_title = "Bar Plot Example", x_axis_label = "Categories", y_axis_label = "Percentage")
+
+
+
+##############################################################################
+#1 load_survey_data() takes the necessary parameters (API key, base URL, survey 
+#ID, and output filename) and calls the other helper functions.
+#2	load_libraries(): This function loads the required R packages:qualtRics, sjlabelled, tidyverse, janitor, and skimr.
+#3	set_api_credentials(): This function sets the Qualtrics API credentials using the provided API key and base URL.
+#4	fetch_survey_data(): This function fetches the survey data from Qualtrics using the provided survey ID.
+#5	save_survey_responses(): This function saves the survey data as a CSV file with the given filename.
+#6	read_csv_and_get_colnames(): This function reads the CSV file, gets the column names, and returns the column names and the raw data.
+#7	main(): This is the main function that orchestrates the entire process. It calls the helper functions in the correct order to load the survey data, save it as a CSV file, and print the column names.
+##############################################################################
+
+load_survey_data <- function(api_key = NULL, base_url = NULL, surveyID) {
+  # Load necessary libraries
+  load_libraries <- function() {
+    library(qualtRics)
+    library(sjlabelled)
+    library(tidyverse)
+    library(janitor)
+    library(skimr)
+    library(magrittr)
+  }
+  
+  # Set API credentials
+  set_api_credentials <- function(api_key, base_url) {
+    qualtrics_api_credentials(api_key = api_key,
+                              base_url = base_url,
+                              overwrite = TRUE,
+                              install = TRUE)
+  }
+  
+  # Fetch survey data
+  fetch_survey_data <- function(surveyID) {
+    tryCatch(
+      {
+        fetch_survey(surveyID = surveyID, force_request = TRUE)
+      },
+      error = function(e) {
+        message("Error fetching survey data: ", e$message)
+        message("Please check your API key and base URL.")
+        stop("Qualtrics API authentication error")
+      }
+    )
+  }
+  
+  # Save survey responses as a CSV file
+  save_survey_responses <- function(data, filename) {
+    write.csv(data, file = filename, row.names = FALSE)
+  }
+  
+  # Read CSV file and get column names
+  read_csv_and_get_colnames <- function(filename, skip_rows = 3) {
+    col_names <- colnames(readr::read_csv(filename, n_max = 0))
+    raw_data <- readr::read_csv(filename, col_names = col_names, skip = skip_rows)
+    list(col_names = col_names, raw_data = raw_data)
+  }
+  
+  # Define columns to remove
+  cols_to_remove <- c(
+    "StartDate", "EndDate", "Status", "IPAddress", "Progress", "Duration (in seconds)",
+    "Finished", "RecordedDate", "RecipientLastName", "RecipientFirstName", "RecipientEmail",
+    "ExternalReference", "LocationLatitude", "LocationLongitude", "DistributionChannel",
+    "UserLanguage", "Q_RecaptchaScore", "Q_RelevantIDDuplicate", "Q_RelevantIDDuplicateScore",
+    "Q_RelevantIDFraudScore", "Q_RelevantIDLastStartDate", "SC0", "opp", "Q_TotalDuration",
+    "RISN", "rid", "LS", "V", "CMRID", "Q_CHL", "Q_BallotBoxStuffing", "Redix", "tg", "wave",
+    "transaction_id", "SVID", "PS", "ResponseID", "PID", "psid", "K2", "med", "orderNumber",
+    "gc", "term", "pureSpectrumRedirectUrl", "pureSpectrumSignatureValue"
+  )
+  
+  # Load API key and base URL from .Renviron file
+  readRenviron("~/.Renviron")
+  
+  # Set API credentials
+  if (is.null(api_key) || is.null(base_url)) {
+    api_key <- Sys.getenv("QUALTRICS_API_KEY")
+    base_url <- Sys.getenv("QUALTRICS_BASE_URL")
+  }
+  set_api_credentials(api_key, base_url)
+  
+  # Fetch survey data
+  survey_data <- fetch_survey_data(surveyID)
+  
+  # Save survey responses as a CSV file
+  save_survey_responses(survey_data, "datafile.csv")
+  
+  # Check overlap with actual column names in data file
+  load_libraries()
+  csv_info <- read_csv_and_get_colnames("datafile.csv")
+  col_names <- csv_info$col_names
+  cols_to_remove_id <- col_names %in% cols_to_remove
+  cols_to_remove <- col_names[cols_to_remove_id]
+  
+  # Remove the unwanted Qualtrics columns
+  raw_data <- csv_info$raw_data
+  raw_data <- dplyr::select(raw_data, !all_of(cols_to_remove))
+  
+  # Initial cleaning: Convert column names to tidyverse style guide and remove empty rows and columns
+  cleaned_data <- janitor::clean_names(raw_data)
+  dplyr::glimpse(cleaned_data)
+  
+  # Define function to delete columns with substring and retain
+  delete_columns_with_substring_and_retain <- function(df, substring_to_delete, substring_to_retain) {
+    deleted_columns <- vector("character", length = 0)
+    for (col in names(df)) {
+      if (grepl(substring_to_delete, col) && !grepl(substring_to_retain, col)) {
+        df <- df[, !(names(df) %in% col)]
+        deleted_columns <- c(deleted_columns, col)
+      }
+    }
+    cat("Deleted columns:", paste(deleted_columns, collapse = ", "), "\n")
+    return(df)
+  }
+  
+  # Delete columns with substring 'DO' and retain columns with 'DO_DO'
+  cleaned_data <- delete_columns_with_substring_and_retain(cleaned_data, '_do_', '_do_do_')
+  
+  # Delete columns with substring 'ADO' and retain columns with 'ADO_ADO'
+  cleaned_data <- delete_columns_with_substring_and_retain(cleaned_data, '_ado_', '_ado_ado_')
+  
+  return(cleaned_data)
+}
+
+
+
+
+
+```
+
+#### Load new and updated functions
+
+```{r}
+#| include: false
+library(ggplot2)
+library(dplyr)
+
+#' Generate Horizontal Bar Chart
+#'
+#' This function generates a horizontal bar chart from a given dataframe. It allows the user to specify the variable names, variable labels, value labels, and a custom color palette.
+#'
+#' @param df The input dataframe.
+#' @param file_name The name of the output file to be saved.
+#' @param question_names A vector of column names to be used for the chart.
+#' @param var_labels A vector of variable labels to be used for the x-axis.
+#' @param value_labels A vector of value labels to be used for the legend.
+#' @param custom_palette A vector of custom colors to be used for the bars.
+#'
+#' @return The generated horizontal bar chart plot object.
+
+generate_horizontal_bar_chart <- function(df, file_name, question_names, var_labels, value_labels, custom_palette, bar_order) {
+  
+  # Select relevant columns
+  reduced_df <- dplyr::select(df, response_id, !!!syms(question_names))
+  
+  # Reshape the data to long format
+  reduced_df_long <- tidyr::pivot_longer(reduced_df, cols = -response_id, names_to = "Variable", values_to = "Value")
+  
+  # Remove NAs
+  reduced_df_long <- na.omit(reduced_df_long)
+  
+  # Reorder the Variable column to match the desired order
+  reduced_df_long$Variable <- factor(reduced_df_long$Variable, levels = bar_order)
+  
+  # Reorder the Value column to match the desired order
+  reduced_df_long$Value <- factor(reduced_df_long$Value, levels = rev(value_labels))
+  
+  # Calculate the percentage of respondents for each value
+  reduced_df_long_perc <- reduced_df_long %>%
+    group_by(Variable, Value) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count),
+           Percentage = scales::percent(Proportion, accuracy = 1)) %>%
+    ungroup()
+  
+  # Create the horizontal bar chart
+  plot <- ggplot(reduced_df_long_perc, aes(x = Variable, y = Proportion, fill = Value)) +
+    geom_col(position = "fill", width = 0.9) +
+    geom_text(aes(label = Percentage), position = position_fill(vjust = 0.5), size = 2, color = "white") +
+    coord_flip() +
+    scale_x_discrete(labels = var_labels) +
+    scale_fill_manual(values = rev(custom_palette[1:length(value_labels)])) +
+    labs(title = "", x = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          panel.grid = element_blank(),
+          legend.position = "top")
+  
+  # Save the plot as a PNG file
+  ggsave(file_name, plot, height = 4.5, width = 10, dpi = 1800)
+  
+  # Return the plot object and the reduced_df_long_perc dataframe
+  return(list(plot = plot, data = reduced_df_long_perc))
+}
+
+# Sample dataframe
+set.seed(123)
+sample_df <- data.frame(
+  response_id = 1:100,
+  q66_shared_1 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_2 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_3 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_4 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_5 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_6 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_7 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE)
+)
+
+result <- generate_horizontal_bar_chart(
+  sample_df,
+  "sample_output3.png",
+  question_names = c("q66_shared_1", "q66_shared_2", "q66_shared_3", "q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  var_labels = c("Variable 2", "Variable 4", "Variable 1", "Variable 6", "Variable 3", "Variable 5", "Variable 7"),
+  value_labels = c("Yes", "No", "Maybe", "Unsure"),
+  custom_palette = custom_palette,
+  bar_order = c("q66_shared_2", "q66_shared_4", "q66_shared_1", "q66_shared_6", "q66_shared_3", "q66_shared_5", "q66_shared_7")
+)
+
+
+# create_regression_plot function takes a dataframe and creates a regression plot
+# with options to display data points. It plots the relationship between the
+# variables specified by x_var and y_var with a linear regression line.
+# Additional customization options include setting the main_title, y_axis_label,
+# x_axis_label, line_color, and whether to display data points using geom_point.
+# The inputs for this function are dataframe (the input dataframe), x_var and y_var (the variables to be plotted).
+
+# The function create_regression_plot generates a regression plot, and the example
+# provided demonstrates how to use the function with sample data.
+
+# Note this graph creates a regression plot
+create_regression_plot <- function(dataframe, x_var, y_var, main_title = NULL, y_axis_label = NULL, x_axis_label = NULL, line_color = "#002A4E", plot_name = NULL) {
+  # Check for missing values
+  if (any(sapply(dataframe, function(x) any(is.na(x))))) {
+    stop("The input dataframe contains missing values. Please handle them before using this function.")
+  }
+  
+  # Check if the input arguments are valid
+  stopifnot(
+    x_var %in% names(dataframe),
+    y_var %in% names(dataframe)
+  )
+  
+  # Create a base plot with a linear regression line
+  plot <- ggplot(dataframe, aes(x = !!rlang::sym(x_var), y = !!rlang::sym(y_var))) +
+    geom_smooth(method = "lm", se = TRUE, color = line_color) +
+    geom_point(size = 2, color = "#36749D") +
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      plot.title = element_text(hjust = 0.5), # Center the title
+      plot.margin = margin(20, 20, 20, 20) # Add margin to the plot
+    ) +
+    labs(
+      title = ifelse(!is.null(main_title), main_title, NULL),
+      x = ifelse(!is.null(x_axis_label), x_axis_label, x_var),
+      y = ifelse(!is.null(y_axis_label), y_axis_label, y_var)
+    )
+  
+  # Save the plot as a PNG file if plot_name is provided
+  if (!is.null(plot_name)) {
+    ggsave(filename = plot_name, plot = plot, width = 10, height = 4.5, dpi = 1800)
+  }
+  
+  return(plot)
+}
+
+# Example usage for a regression plot with points
+set.seed(123)
+data_df <- data.frame(
+  X = rnorm(100),
+  Y = rnorm(100)
+)
+
+plot_object <- create_regression_plot(
+  data_df, x_var = "X", y_var = "Y",
+  main_title = "Regression Plot",
+  y_axis_label = "Y-Axis Label",
+  x_axis_label = "X-Axis Label",
+  line_color = "#002A4E",
+  plot_name = "regression_plot.png"
+)
+print(plot_object)
+
+
+
+library(ggplot2)
+library(dplyr)
+
+# Create a sample custom color palette
+custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C", "#FAF9F6")
+
+# Function to plot the frequency of the top 10 phrases
+plot_top_phrases <- function(dataframe, column_name, plot_name = "top_phrases_plot.png") {
+  # Check if the input dataframe and column_name are valid
+  if (!is.data.frame(dataframe) || !is.character(column_name) || !column_name %in% names(dataframe)) {
+    stop("Invalid input dataframe or column_name.")
+  }
+  
+  # Group and count the phrases in the specified column
+  phrase_counts <- dataframe %>%
+    group_by(!!sym(column_name)) %>%
+    summarize(Count = n()) %>%
+    arrange(desc(Count)) %>%
+    slice_head(n = 10)
+  
+  # Determine the number of unique phrases
+  num_unique_phrases <- nrow(phrase_counts)
+  
+  # Create a fill column to assign unique colors from the custom palette
+  phrase_counts$Fill <- rep(custom_palette, length.out = num_unique_phrases)
+  
+  # Create a ggplot bar chart
+  p <- ggplot(phrase_counts, aes(x = reorder(!!sym(column_name), -Count), y = Count, fill = Fill)) +
+    geom_bar(stat = "identity") +
+    labs(title = paste("Top 10 Phrases in", column_name), y = "Frequency") +
+    scale_fill_identity() + # Use the assigned colors
+    theme_bw() +
+    theme(
+      panel.grid.major = element_blank(),
+      panel.grid.minor = element_blank(),
+      panel.border = element_blank(),
+      axis.line = element_line(),
+      text = element_text(size = 6, family = 'sans'),
+      legend.title = element_blank(),
+      legend.position = "none",
+      axis.text.x = element_text(angle = 45, vjust = 1, hjust = 1)
+    )
+  
+  # Save the plot as a PNG file
+  ggsave(filename = plot_name, plot = p, width = 10, height = 4.5, dpi = 300)
+  
+  # Display the plot
+  print(p)
+}
+
+generate_multiple_phrase_barcharts <- function(dataframe) {
+  for (column_name in names(dataframe)) {
+    if (is.character(dataframe[[column_name]])) {
+      plot_name <- paste0(column_name, "_phrases_barchart.png")
+      plot_top_phrases(dataframe, column_name, plot_name)
+    } else {
+      message("Column '", column_name, "' is not a text column. Skipping this column.")
+    }
+  }
+}
+
+# Create a sample dataframe
+sample_data <- data.frame(
+  ID = 1:10,
+  question1 = c("apple", "banana", "apple", "cherry", "banana", "apple", "banana", "cherry", "date", "apple"),
+  question2 = c("orange", "pear", "orange", "kiwi", "pear", "orange", "pear", "kiwi", "mango", "orange"),
+  numeric_column = c(1, 2, 3, 4, 5, 6, 7, 8, 9, 10)
+)
+
+# Generate multiple phrase barcharts
+generate_multiple_phrase_barcharts(sample_data)
+
+
+
+
+#The generate_wordcloud function takes a dataframe, a text column, and an output filename as inputs. 
+#It creates a word cloud plot from the text data in the specified column using the wordcloud function
+#from the wordcloud package. It calculates the word frequencies, 
+#sets up the plot dimensions, and saves the resulting word cloud as a PNG file with a fixed dark blue color and white background
+
+# Example of how to call the function to save the word cloud plot
+
+
+library(wordcloud)
+library(tm)
+library(RColorBrewer)
+
+# List of common stop words in English
+stop_words <- c("i", "me", "my", "myself", "we", "our", "ours", "ourselves", "you", "your", "yours", "yourself", "yourselves",
+                "he", "him", "his", "himself", "she", "her", "hers", "herself", "it", "its", "itself", "they", "them", "their",
+                "theirs", "themselves", "what", "which", "who", "whom", "this", "that", "these", "those", "am", "is", "are", "was",
+                "were", "be", "been", "being", "have", "has", "had", "having", "do", "does", "did", "doing", "a", "an", "the", "and",
+                "but", "if", "or", "because", "as", "until", "while", "of", "at", "by", "for", "with", "about", "against", "between",
+                "into", "through", "during", "before", "after", "above", "below", "to", "from", "up", "down", "in", "out", "on", "off",
+                "over", "under", "again", "further", "then", "once", "here", "there", "when", "where", "why", "how", "all", "any",
+                "both", "each", "few", "more", "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+                "than", "too", "very", "s", "t", "can", "will", "just", "don", "should", "now", "d", "ll", "m", "o", "re", "ve", "y",
+                "ain", "aren", "couldn", "didn", "doesn", "hadn", "hasn", "haven", "isn", "ma", "mightn", "mustn", "needn", "shan",
+                "shouldn", "wasn", "weren", "won", "wouldn")
+
+generate_wordcloud <- function(dataframe, text_column, output_filename, color_palette = c("#002A4E", "#36749D", "#85714D", "#000000", "#004F51", "#95174C", "#313131")) {
+  # Parameter validation
+  if (is.null(dataframe) || is.null(text_column) || is.null(output_filename)) {
+    stop("All parameters must be provided.")
+  }
+  
+  if (!text_column %in% colnames(dataframe)) {
+    stop("The specified text column does not exist in the dataframe.")
+  }
+  
+  if (nrow(dataframe) == 0) {
+    message("The dataframe is empty. No word cloud can be generated.")
+    return(invisible())
+  }
+  
+  tryCatch({
+    # Create a Corpus from the text_column
+    corpus <- Corpus(VectorSource(dataframe[[text_column]]))
+    
+    # Convert to lowercase and remove punctuation
+    corpus <- tm_map(corpus, content_transformer(tolower))
+    corpus <- tm_map(corpus, removePunctuation)
+    
+    # Remove common stop words
+    corpus <- tm_map(corpus, removeWords, stop_words)
+    
+    # Create a Document-Term Matrix
+    dtm <- DocumentTermMatrix(corpus)
+    
+    # Convert the Document-Term Matrix to a matrix
+    word_freq_matrix <- as.matrix(dtm)
+    
+    # Calculate word frequencies
+    word_freqs <- colSums(word_freq_matrix)
+    
+    # Create a data frame of word frequencies
+    word_freq_df <- data.frame(word = names(word_freqs), freq = word_freqs)
+    
+    # Filter out words that are two letters or shorter
+    word_freq_df <- word_freq_df[nchar(as.character(word_freq_df$word)) > 2, ]
+    
+    # Set up the word cloud plot dimensions
+    par(mar = rep(1, 4)) # Adjust the margins as needed
+    
+    # Create a word cloud with the specified color palette and white background
+    word_cloud <- wordcloud(
+      words = word_freq_df$word,
+      freq = word_freq_df$freq,
+      scale = c(3, 0.5),
+      min.freq = 1,
+      colors = color_palette,
+      bg = "white"
+    )
+    
+    # Save the word cloud as a PNG file
+    png(filename = paste0(output_filename, ".png"), width = 800, height = 600, res = 100) # Adjust width, height, and res as needed
+    print(word_cloud)
+    dev.off() # Close the PNG device
+    
+    return(word_cloud)
+  }, error = function(e) {
+    cat("An error occurred: ", conditionMessage(e), "\n")
+  })
+}
+
+set.seed(123)
+sample_data <- data.frame(
+  text_column = c(
+    "This is a sample text for the word cloud.",
+    "Another example text to be included.",
+    "Testing the word cloud function.",
+    "Final text sample for the word cloud."
+  )
+)
+
+
+generate_wordcloud(sample_data, "text_column", "sample_wordcloud")
+
+word_cloud_object <- generate_wordcloud(sample_data, "text_column", "sample_wordcloud")
+
+custom_palette <- c("#002A4E", "#36749D", "#85714D", "#000000", "#004F51", "#95174C", "#313131")
+word_cloud_object <- generate_wordcloud(sample_data, "text_column", "sample_wordcloud", color_palette = custom_palette)
+
+
+
+
+
+
+##Newest version 20240516
+
+#' Generate Horizontal Bar Chart
+#'
+#' This function generates a horizontal bar chart from a given dataframe. It allows the user to specify the variable names, variable labels, value labels, and a custom color palette.
+#'
+#' @param df The input dataframe.
+#' @param file_name The name of the output file to be saved.
+#' @param question_names A vector of column names to be used for the chart.
+#' @param var_labels A vector of variable labels to be used for the x-axis.
+#' @param value_labels A vector of value labels to be used for the legend.
+#' @param custom_palette A vector of custom colors to be used for the bars.
+#'
+#' @return The generated horizontal bar chart plot object.
+
+generate_horizontal_bar_chart <- function(df, file_name, question_names, var_labels, value_labels, custom_palette, bar_order) {
+  # Select relevant columns
+  reduced_df <- dplyr::select(df, response_id, !!!syms(question_names))
+  
+  # Reshape the data to long format
+  reduced_df_long <- tidyr::pivot_longer(reduced_df, cols = -response_id, names_to = "Variable", values_to = "Value")
+  
+  # Remove NAs
+  reduced_df_long <- na.omit(reduced_df_long)
+  
+  # Reorder the Variable column to match the desired order
+  reduced_df_long$Variable <- factor(reduced_df_long$Variable, levels = bar_order)
+  
+  # Reorder the Value column to match the desired order
+  reduced_df_long$Value <- factor(reduced_df_long$Value, levels = value_labels)
+  
+  # Calculate the percentage of respondents for each value
+  reduced_df_long_perc <- reduced_df_long %>%
+    group_by(Variable, Value) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count),
+           Percentage = scales::percent(Proportion, accuracy = 1)) %>%
+    ungroup()
+  
+  # Create the horizontal bar chart
+  plot <- ggplot(reduced_df_long_perc, aes(x = Variable, y = Proportion, fill = Value)) +
+    geom_col(position = "fill", width = 0.9) +
+    geom_text(aes(label = Percentage), position = position_fill(vjust = 0.5), size = 2, color = "white") +
+    coord_flip() +
+    scale_x_discrete(labels = var_labels) +
+    scale_fill_manual(values = custom_palette[1:length(value_labels)], 
+                      breaks = rev(levels(reduced_df_long_perc$Value))) +  # Reverse the order of labels in the legend
+    labs(title = "", x = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          panel.grid = element_blank(),
+          legend.position = "top")
+  
+  # Save the plot as a PNG file
+  ggsave(file_name, plot, height = 4.5, width = 10, dpi = 1800)
+  
+  # Return the plot object and the reduced_df_long_perc dataframe
+  return(list(plot = plot, data = reduced_df_long_perc))
+}
+
+# Sample dataframe
+set.seed(123)
+sample_df <- data.frame(
+  response_id = 1:100,
+  q66_shared_1 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_2 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_3 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_4 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_5 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_6 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_7 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE)
+)
+
+result <- generate_horizontal_bar_chart(
+  sample_df,
+  "sample_output3.png",
+  question_names = c("q66_shared_1", "q66_shared_2", "q66_shared_3", "q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  var_labels = c("Variable 2", "Variable 4", "Variable 1", "Variable 6", "Variable 3", "Variable 5", "Variable 7"),
+  value_labels = c("Yes", "No", "Maybe", "Unsure"),
+  custom_palette = custom_palette,
+  bar_order = c("q66_shared_2", "q66_shared_4", "q66_shared_1", "q66_shared_6", "q66_shared_3", "q66_shared_5", "q66_shared_7")
+)
+
+#' Generate Horizontal Bar Chart
+#'
+#' This function generates a horizontal bar chart from a given dataframe. It allows the user to specify the variable names, value labels, and a custom color palette.
+#'
+#'@param df The input dataframe.
+#'@param file_name The name of the output file to be saved.
+#'@param question_names A vector of column names to be used for the chart.
+#'@param var_labels A vector of variable labels to be used for the x-axis.
+#'@param value_labels A vector of value labels to be used for the legend.
+#'@param custom_palette A vector of custom colors to be used for the bars.
+#'
+#'@return The function saves the generated chart as a PNG file.
+
+generate_horizontal_bar_chart <- function(df, file_name, question_names, var_labels, value_labels, custom_palette) {
+  # Select relevant columns
+  reduced_df <- dplyr::select(df, response_id, !!!syms(question_names))
+  
+  # Reshape the data to long format
+  reduced_df_long <- tidyr::pivot_longer(reduced_df, cols = -response_id, names_to = "Variable", values_to = "Value")
+  
+  # Remove NAs
+  reduced_df_long <- na.omit(reduced_df_long)
+  
+  # Calculate the percentage of respondents for each value
+  reduced_df_long_perc <- reduced_df_long %>%
+    group_by(Variable, Value) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count),
+           Percentage = scales::percent(Proportion, accuracy = 1)) %>%
+    ungroup()
+  
+  # Create the horizontal bar chart
+  plot <- ggplot(reduced_df_long_perc, aes(x = Variable, y = Proportion, fill = Value)) +
+    geom_col(position = "fill", width = 0.6) +
+    geom_text(aes(label = Percentage), position = position_fill(vjust = 0.5), size = 4, color = "white") +
+    coord_flip() +
+    scale_x_discrete() +
+    scale_fill_manual(values = setNames(custom_palette[1:length(value_labels)], value_labels)) +
+    labs(title = "", x = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 12, family = 'sans'),
+          legend.position = "top")
+  
+  # Save the plot as a PNG file
+  ggsave(file_name, plot, height = 4.5, width = 10, dpi = 1800)
+}
+
+# Sample dataframe
+set.seed(123)
+sample_df <- data.frame(
+  response_id = 1:100,
+  q66_shared_1 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_2 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_3 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_4 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_5 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_6 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_7 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE)
+)
+
+# Test the function
+custom_palette <- c("#002A4E", "#36749D","#85714D", "#004F51", "#000000",  "#95174C","#DDE9F0")
+
+generate_horizontal_bar_chart(
+  sample_df,
+  "sample_output.png",
+  question_names = c("q66_shared_1", "q66_shared_2", "q66_shared_3", "q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  var_labels = c("q66_shared_1", "q66_shared_2", "q66_shared_3", "q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  value_labels = c("Yes", "No", "Maybe", "Unsure"),
+  custom_palette = custom_palette
+)
+
+
+
+
+
+
+library(ggplot2)
+library(dplyr)
+
+#' Generate Horizontal Bar Chart
+#'
+#' This function generates a horizontal bar chart from a given dataframe. It allows the user to specify the variable names, variable labels, value labels, and a custom color palette.
+#'
+#' @param df The input dataframe.
+#' @param file_name The name of the output file to be saved.
+#' @param question_names A vector of column names to be used for the chart.
+#' @param var_labels A vector of variable labels to be used for the x-axis.
+#' @param value_labels A vector of value labels to be used for the legend.
+#' @param custom_palette A vector of custom colors to be used for the bars.
+#'
+#' @return The generated horizontal bar chart plot object.
+
+
+generate_horizontal_bar_chart <- function(df, file_name, question_names, var_labels, value_labels, custom_palette) {
+  # Select relevant columns
+  reduced_df <- dplyr::select(df, response_id, !!!syms(question_names))
+  
+  # Reshape the data to long format
+  reduced_df_long <- tidyr::pivot_longer(reduced_df, cols = -response_id, names_to = "Variable", values_to = "Value")
+  
+  # Remove NAs
+  reduced_df_long <- na.omit(reduced_df_long)
+  
+  # Reorder the Value column to match the desired order
+  reduced_df_long$Value <- factor(reduced_df_long$Value, levels = rev(value_labels))
+  
+  # Calculate the percentage of respondents for each value
+  reduced_df_long_perc <- reduced_df_long %>%
+    group_by(Variable, Value) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count),
+           Percentage = scales::percent(Proportion, accuracy = 1)) %>%
+    ungroup()
+  
+  # Create the horizontal bar chart
+  plot <- ggplot(reduced_df_long_perc, aes(x = Variable, y = Proportion, fill = Value)) +
+    geom_col(position = "fill", width = 0.9) +
+    geom_text(aes(label = Percentage), position = position_fill(vjust = 0.5), size = 4, color = "white") +
+    coord_flip() +
+    scale_x_discrete(labels = var_labels) +
+    scale_fill_manual(values = rev(custom_palette[1:length(value_labels)])) +
+    labs(title = "", x = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 12, family = 'sans'),
+          legend.position = "top")
+  
+  # Save the plot as a PNG file
+  ggsave(file_name, plot, height = 4.5, width = 10, dpi = 1800)
+  
+  # Return the plot object
+  return(plot)
+}
+
+
+# Sample dataframe
+set.seed(123)
+sample_df <- data.frame(
+  response_id = 1:100,
+  q66_shared_1 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_2 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_3 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_4 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_5 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_6 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_7 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE)
+)
+
+# Test the function
+custom_palette <- c("#002A4E", "#36749D", "#85714D","#004F51", "#000000",  "#95174C","#DDE9F0")
+
+plot_object <- generate_horizontal_bar_chart(
+  sample_df,
+  "sample_output.png",
+  question_names = c("q66_shared_1", "q66_shared_2", "q66_shared_3","q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  var_labels = c("Variable 1", "Variable 2", "Variable 3", "Variable 4", "Variable 5", "Variable 6", "Variable 7"),
+  value_labels = c("Yes", "No", "Maybe", "Unsure"),
+  custom_palette = custom_palette
+)
+
+
+
+
+
+
+generate_horizontal_bar_chart <- function(df, file_name, question_names, var_labels, value_labels, custom_palette) {
+  # Select relevant columns
+  reduced_df <- dplyr::select(df, response_id, !!!syms(question_names))
+  
+  # Reshape the data to long format
+  reduced_df_long <- tidyr::pivot_longer(reduced_df, cols = -response_id, names_to = "Variable", values_to = "Value")
+  
+  # Remove NAs
+  reduced_df_long <- na.omit(reduced_df_long)
+  
+  # Reorder the Value column to match the desired order
+  reduced_df_long$Value <- factor(reduced_df_long$Value, levels = rev(value_labels))
+  
+  # Calculate the percentage of respondents for each value
+  reduced_df_long_perc <- reduced_df_long %>%
+    group_by(Variable, Value) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count),
+           Percentage = scales::percent(Proportion, accuracy = 1)) %>%
+    ungroup()
+  
+  # Create the horizontal bar chart
+  plot <- ggplot(reduced_df_long_perc, aes(x = Variable, y = Proportion, fill = Value)) +
+    geom_col(position = "fill", width = 0.9) +
+    geom_text(aes(label = Percentage), position = position_fill(vjust = 0.5), size = 4, color = "white") +
+    coord_flip() +
+    scale_x_discrete(labels = var_labels) +
+    scale_fill_manual(values = rev(custom_palette[1:length(value_labels)])) +
+    labs(title = "", x = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 12, family = 'sans'),
+          legend.position = "top")
+  
+  # Save the plot as a PNG file
+  ggsave(file_name, plot, height = 4.5, width = 10, dpi = 1800)
+  
+  # Return the plot object and the reduced_df_long_perc dataframe
+  return(list(plot = plot, data = reduced_df_long_perc))
+}
+
+# Sample dataframe
+set.seed(123)
+sample_df <- data.frame(
+  response_id = 1:100,
+  q66_shared_1 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_2 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_3 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_4 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_5 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_6 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_7 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE)
+)
+
+# Test the function
+custom_palette <- c("#002A4E", "#36749D", "#DDE9F0", "#85714D", "#000000", "#004F51", "#95174C")
+result <- generate_horizontal_bar_chart(
+  sample_df,
+  "sample_output2.png",
+  question_names = c("q66_shared_1", "q66_shared_2", "q66_shared_3", "q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  var_labels = c("Variable 1", "Variable 2", "Variable 3", "Variable 4", "Variable 5", "Variable 6", "Variable 7"),
+  value_labels = c("Yes", "No", "Maybe", "Unsure"),
+  custom_palette = custom_palette
+)
+
+# Access the plot object and the data frame
+plot_object <- result$plot
+reduced_df_long_perc <- result$data
+
+
+
+
+generate_horizontal_bar_chart <- function(df, file_name, question_names, var_labels, value_labels, custom_palette, bar_order) {
+  
+  # Select relevant columns
+  reduced_df <- dplyr::select(df, response_id, !!!syms(question_names))
+  
+  # Reshape the data to long format
+  reduced_df_long <- tidyr::pivot_longer(reduced_df, cols = -response_id, names_to = "Variable", values_to = "Value")
+  
+  # Remove NAs
+  reduced_df_long <- na.omit(reduced_df_long)
+  
+  # Reorder the Variable column to match the desired order
+  reduced_df_long$Variable <- factor(reduced_df_long$Variable, levels = bar_order)
+  
+  # Reorder the Value column to match the desired order
+  reduced_df_long$Value <- factor(reduced_df_long$Value, levels = rev(value_labels))
+  
+  # Calculate the percentage of respondents for each value
+  reduced_df_long_perc <- reduced_df_long %>%
+    group_by(Variable, Value) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count),
+           Percentage = scales::percent(Proportion, accuracy = 1)) %>%
+    ungroup()
+  
+  # Create the horizontal bar chart
+  plot <- ggplot(reduced_df_long_perc, aes(x = Variable, y = Proportion, fill = Value)) +
+    geom_col(position = "fill", width = 0.9) +
+    geom_text(aes(label = Percentage), position = position_fill(vjust = 0.5), size = 4, color = "white") +
+    coord_flip() +
+    scale_x_discrete(labels = var_labels) +
+    scale_fill_manual(values = rev(custom_palette[1:length(value_labels)])) +
+    labs(title = "", x = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 12, family = 'sans'),
+          legend.position = "top")
+  
+  # Save the plot as a PNG file
+  ggsave(file_name, plot, height = 4.5, width = 10, dpi = 1800)
+  
+  # Return the plot object and the reduced_df_long_perc dataframe
+  return(list(plot = plot, data = reduced_df_long_perc))
+}
+
+
+result <- generate_horizontal_bar_chart(
+  sample_df,
+  "sample_output3.png",
+  question_names = c("q66_shared_1", "q66_shared_2", "q66_shared_3", "q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  var_labels = c("Variable 2", "Variable 4", "Variable 1", "Variable 6", "Variable 3", "Variable 5", "Variable 7"),
+  value_labels = c("Yes", "No", "Maybe", "Unsure"),
+  custom_palette = custom_palette,
+  bar_order = c("q66_shared_2", "q66_shared_4", "q66_shared_1", "q66_shared_6", "q66_shared_3", "q66_shared_5", "q66_shared_7")
+)
+
+
+
+generate_horizontal_bar_chart <- function(df, file_name, question_names, var_labels, value_labels, custom_palette, bar_order) {
+  reduced_df <- dplyr::select(df, response_id, all_of(question_names))
+  reduced_df_long <- tidyr::pivot_longer(reduced_df, cols = -response_id, names_to = "Variable", values_to = "Value")
+  reduced_df_long <- na.omit(reduced_df_long)
+  
+  # Reorder the Variable column to match the desired order using forcats::fct_relevel()
+  reduced_df_long$Variable <- forcats::fct_relevel(reduced_df_long$Variable, bar_order)
+  
+  reduced_df_long$Value <- factor(reduced_df_long$Value, levels = rev(value_labels))
+  
+  reduced_df_long_perc <- reduced_df_long %>%
+    group_by(Variable, Value) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count),
+           Percentage = scales::percent(Proportion, accuracy = 1)) %>%
+    ungroup()
+  
+  plot <- ggplot(reduced_df_long_perc, aes(x = Variable, y = Proportion, fill = Value)) +
+    geom_col(position = "fill", width = 0.9) +
+    geom_text(aes(label = Percentage), position = position_fill(vjust = 0.5), size = 4, color = "white") +
+    coord_flip() +
+    scale_x_discrete(labels = var_labels) +
+    scale_fill_manual(values = rev(custom_palette[1:length(value_labels)])) +
+    labs(title = "", x = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(
+      axis.text.x = element_blank(),
+      axis.title.x = element_blank(),
+      panel.grid = element_blank(),
+      text = element_text(size = 12, family = 'sans'),
+      legend.position = "top"
+    )
+  
+  ggsave(file_name, plot, height = 4.5, width = 10, dpi = 1800)
+  
+  return(list(plot = plot, data = reduced_df_long_perc))
+}
+
+
+result <- generate_horizontal_bar_chart(
+  sample_df,
+  "sample_output3.png",
+  question_names = c("q66_shared_1", "q66_shared_2", "q66_shared_3", "q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  var_labels = c("Variable 2", "Variable 4", "Variable 1", "Variable 6", "Variable 3", "Variable 5", "Variable 7"),
+  value_labels = c("Yes", "No", "Maybe", "Unsure"),
+  custom_palette = custom_palette,
+  bar_order = c("q66_shared_2", "q66_shared_4", "q66_shared_1", "q66_shared_6", "q66_shared_3", "q66_shared_5", "q66_shared_7")
+)
+
+
+##Newest version 20240516
+
+#' Generate Horizontal Bar Chart
+#'
+#' This function generates a horizontal bar chart from a given dataframe. It allows the user to specify the variable names, variable labels, value labels, and a custom color palette.
+#'
+#' @param df The input dataframe.
+#' @param file_name The name of the output file to be saved.
+#' @param question_names A vector of column names to be used for the chart.
+#' @param var_labels A vector of variable labels to be used for the x-axis.
+#' @param value_labels A vector of value labels to be used for the legend.
+#' @param custom_palette A vector of custom colors to be used for the bars.
+#'
+#' @return The generated horizontal bar chart plot object.
+
+generate_horizontal_bar_chart <- function(df, file_name, question_names, var_labels, value_labels, custom_palette, bar_order) {
+  # Select relevant columns
+  reduced_df <- dplyr::select(df, response_id, !!!syms(question_names))
+  
+  # Reshape the data to long format
+  reduced_df_long <- tidyr::pivot_longer(reduced_df, cols = -response_id, names_to = "Variable", values_to = "Value")
+  
+  # Remove NAs
+  reduced_df_long <- na.omit(reduced_df_long)
+  
+  # Reorder the Variable column to match the desired order
+  reduced_df_long$Variable <- factor(reduced_df_long$Variable, levels = bar_order)
+  
+  # Reorder the Value column to match the desired order
+  reduced_df_long$Value <- factor(reduced_df_long$Value, levels = value_labels)
+  
+  # Calculate the percentage of respondents for each value
+  reduced_df_long_perc <- reduced_df_long %>%
+    group_by(Variable, Value) %>%
+    summarize(Count = n()) %>%
+    mutate(Proportion = Count / sum(Count),
+           Percentage = scales::percent(Proportion, accuracy = 1)) %>%
+    ungroup()
+  
+  # Create the horizontal bar chart
+  plot <- ggplot(reduced_df_long_perc, aes(x = Variable, y = Proportion, fill = Value)) +
+    geom_col(position = "fill", width = 0.9) +
+    geom_text(aes(label = Percentage), position = position_fill(vjust = 0.5), size = 4, color = "white") +
+    coord_flip() +
+    scale_x_discrete(labels = var_labels) +
+    scale_fill_manual(values = custom_palette[1:length(value_labels)], 
+                      breaks = rev(levels(reduced_df_long_perc$Value))) +  # Reverse the order of labels in the legend
+    labs(title = "", x = NULL, fill = NULL) +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.title.x = element_blank(),
+          panel.grid = element_blank(),
+          text = element_text(size = 12, family = 'sans'),
+          legend.position = "top")
+  
+  # Save the plot as a PNG file
+  ggsave(file_name, plot, height = 4.5, width = 12, dpi = 1800)
+  
+  # Return the plot object and the reduced_df_long_perc dataframe
+  return(list(plot = plot, data = reduced_df_long_perc))
+}
+
+# Sample dataframe
+set.seed(123)
+sample_df <- data.frame(
+  response_id = 1:100,
+  q66_shared_1 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_2 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_3 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_4 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_5 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_6 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE),
+  q66_shared_7 = sample(c("Yes", "No", "Maybe", "Unsure"), 100, replace = TRUE)
+)
+
+result <- generate_horizontal_bar_chart(
+  sample_df,
+  "sample_output3.png",
+  question_names = c("q66_shared_1", "q66_shared_2", "q66_shared_3", "q66_shared_4", "q66_shared_5", "q66_shared_6", "q66_shared_7"),
+  var_labels = c("Variable 2", "Variable 4", "Variable 1", "Variable 6", "Variable 3", "Variable 5", "Variable 7"),
+  value_labels = c("Yes", "No", "Maybe", "Unsure"),
+  custom_palette = custom_palette,
+  bar_order = c("q66_shared_2", "q66_shared_4", "q66_shared_1", "q66_shared_6", "q66_shared_3", "q66_shared_5", "q66_shared_7")
+)
+
+```
+
+# Brand Tracking Q1 2025
+
+## **Summary**
+
+The QSS team launched a brand-tracking survey in Q4.
+
+Acrisure brand awareness has room for growth and remains consistent with previous quarters. Critically, brand sentiment toward Acrisure remains positive.
+
+Moreover, respondents' perception of Acrisure's new brand ambassador, Lionel Richie, is positive. Respondents view Lionel as favorable and trustworthy.
+
+Middle-aged adults have the most favorable views of Lionel Richie and report the strongest connection to him.
+
+Acrisure's effort to be perceived as a fin-tech company is beginning to bare fruit among prospective CL customers.
+
+From our questions on customer churn , we find CL respondents report churning from a provider for customer service centric reasons, whereas PL respondents are more price centric.
+
+CL and PL respondents are similar across in their reasons for dropping policies. They are likely to drop policies when they no-longer need them or when they can find a competitor that offers better price for the same coverage.
+
+Respondents who receive cross-sell attempts tend to appreciate their agent for bringing the product to their attention. This informs Acrisures Total Client focus, because it shows that when the cross-sell attempt is in the client's best interest then they will be appreciative.
+
+## Methods
+
+### Study Purpose
+
+The primary purpose of this study was to continue to track brand awareness of Acrisure and its competitors. This will inform the decisions of the Innovation team and AGM. Secondary purposes of this study included:
+
+1.  Tracking respondents future purchase consideration of insurance products, employee benefits (commercial lines only), and financial services products.
+
+2.  Tracking respondents awareness of and sentiment towards Acrisure and other insurance providers.
+
+3.  Tracking respondents awareness of and sentiment towards Acrisures new brand ambassdor, Lionel Richie, along with their awareness of and sentiment towards other insurance brand ambassadors.
+
+4.  Determining what factors cause customers to churn from an insurance provider.
+
+5.  Measuring respondents perception of their agent and how they feel when their agent tries to cross-sell to them.
+
+### **Recruitment**
+
+Participants were recruited via Qualtrics. Data collection occurred between...
+
+### **Questions**
+
+The survey was programmed in Qualtrics. For the Commercial Lines survey there were a total of X questions and the median completion time was 15 minutes. The IR for the personal lines sample was X%.
+
+For the Personal Lines survey there were a total of X questions and the median completion time was X minutes. The IR for the personal lines sample was XX%.
+
+### **New Questions**
+
+## **Sample**
+
+The sample was a stratified sample. We collected a PL Sample and a CL Sample. A total of 616 PL and 404 CL respondents completed the survey. The IR for the CL sample was 6.7%. The IR for PL sample was XX%?
+
+### **Screening**
+
+For both samples all individuals were required to be US adults. For the Personal Lines sample individuals must represent Acrisures target customers, that is they must either have owned a home or a car and hold a home or auto policy, or both. For the Commercial Lines sample individuals were required to either be small business owners, equity partners in a business or individuals who are involved in insurance and/or employee benefit decision making. 
+
+### Load Data Files
+
+```{r}
+BTQ2<- read.csv("/Users/grahamalbert/git/Brand-Tracking-Q2-2025/BTQ2_DF_MERGED_DF_INCREASED.csv")
+BTQ2
+```
+
+```{r}
+BTQ2$RESPONDENT_TYPE<-factor(BTQ2$RESPONDENT_TYPE,
+  levels = c(1,2),
+  labels = c("PL","CL")
+)
+BTQ2
+```
+
+```{r}
+# Define the breaks for age categories
+breaks <- c(18, 30, 40, 50, 60, 70, 80)
+
+# Create age categories using cut()
+BTQ2$age_categories <- cut(BTQ2$q3_shared, breaks = breaks, labels = c("18-30", "30-40", "40-50", "50-60", "60-70", "70+"), include.lowest = TRUE, right = FALSE)
+```
+
+```{r}
+#Lets create a staff size variable.
+
+# Define the breaks
+breaks <- seq(0, 500, by = 50)
+
+# Define the labels for the bins
+labels <- c('0-50', '51-100', '101-150', '151-200', '201-250', '251-300', '301-350', '351-400','401-450','451-500')
+
+# Convert the numeric variable to a categorical variable
+BTQ2_CL$company_size <- cut(BTQ2_CL$q25_cl, breaks = breaks, labels = labels, include.lowest = TRUE)
+
+# Print the result
+BTQ2_CL$company_size
+require(vtable)
+COMPANY_SIZE_TAB<-st(BTQ2_CL,vars = "company_size",out="csv",file="company_size.csv")
+COMPANY_SIZE_TAB
+```
+
+### Commercial Lines
+
+```{r}
+BTQ2_CL<-subset(BTQ2,RESPONDENT_TYPE=="CL")
+BTQ2_CL
+```
+
+### Personal Lines
+
+```{r}
+BTQ2_PL<-subset(BTQ2,RESPONDENT_TYPE=="PL")
+BTQ2_PL
+```
+
+```{r}
+# Specify the columns
+
+ columns <- c( "q300_shared_2", "q300_shared_3","q300_shared_4","q300_shared_5","q300_shared_6","q300_shared_7","q300_shared_8","q300_shared_9", "q300_shared_10", "q300_shared_11","q300_shared_12","q300_shared_13","q300_shared_14","q300_shared_15","q300_shared_16"
+)
+# Subset the dataframe to include only the specified columns
+subset_df <- BTQ2[, columns]
+
+# Check if all values in each row of the subset dataframe are NA
+na_rows <- apply(subset_df, 1, function(row) all(is.na(row)))
+
+# Count the number of rows where all specified columns are NA
+count <- sum(na_rows)
+
+# Print the result
+print(count)
+```
+
+```{r}
+require(vtable)
+BTQ2_CL$q4_shared<-factor(BTQ2_CL$q4_shared,
+                             levels=c("$24,999 or less","$25,000 - $49,999","$50,000 - $74,999","$75,000 – $99,999","$100,000 - $149,999","$150,000 - $199,999","$200,000 - $249,999","$250,000 or more","Prefer not to say"))
+
+INCOME_GROUP_CL<-st(BTQ2_CL,vars = "q4_shared",out="csv",file="INCOME_GROUP_CL.csv")
+print(INCOME_GROUP_CL)
+```
+
+
+
+
+
+
+
+
+
+
+
+q300: Which, if any, of the following brands have you heard of? Select all that apply.
+
+Lets look at respondents awareness of all surveyed companies.
+
+##### Brand Awareness Brokerage by state
+
+```{r}
+require(vtable)
+result <- replace_NA_with_value(BTQ2, columns = c("q300_shared_2","q300_shared_3","q300_shared_4","q300_shared_5","q300_shared_6","q300_shared_7","q300_shared_8","q300_shared_9","q300_shared_10","q300_shared_11","q300_shared_12","q300_shared_13","q300_shared_14","q300_shared_15","q300_shared_16"), replace_value = 0)
+Awareness_By_State<-st(result,vars=c("q300_shared_2","q300_shared_3","q300_shared_4","q300_shared_5","q300_shared_6","q300_shared_7","q300_shared_8","q300_shared_9","q300_shared_10","q300_shared_11","q300_shared_12","q300_shared_13","q300_shared_14","q300_shared_15","q300_shared_16"),group="q16_shared",out="csv",file="Awareness_By_State.csv")
+print(Awareness_By_State)
+
+```
+
+
+@fig-Brand-Awareness-Brokerage-Combined shows that Acrisure brand awareness sits at 15%. 
+
+The highest awareness is for insurance carriers that sell P & C insurance who have a very large adveristing presence such as: Allstate (89%), State Farm (89%), Liberty Mutual (86%) Nationwide (85%) and GEICO (85%). 
+
+Respondents have the highest levels of awareness of State Farm, Allstate and GEICO and the lowest levels of awareness of Chubb, the Hanover Group and CNA.
+
+###PL Carrier Awareness
+
+**Personal Lines Respondents Awareness** of the carriers 
+
+```{r}
+#| label: fig-Brand-Awareness-Personal-Lines
+#| fig-cap: Percentage of personal lines respondents who report awareness of each insurance brokerage
+#| warning: false
+#| fig-alt: Bar-chart depicting the percentage of personal respondents are aware of each insurance brokerage
+BROKERAGE_BRAND_AWARENESS_DF_PL<-dplyr::select(BTQ2_PL,response_id,q300_shared_1,q300_shared_2,q300_shared_3,q300_shared_4,q300_shared_5,q300_shared_6
+,q300_shared_7,q300_shared_8,q300_shared_9,q300_shared_10, q300_shared_11,q300_shared_12,q300_shared_13,q300_shared_14,q300_shared_15)
+
+
+
+
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC <- process_data_pipeline_multiple_columns(BROKERAGE_BRAND_AWARENESS_DF_PL, id.var = c("response_id"), default_value = 0, group_column = c("value"))
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC
+#BROKERAGE_BRAND_AWARENESS_DF_PL_PERC$new_perc<-BROKERAGE_BRAND_AWARENESS_DF_PL_PERC$count/((198 * 10) / 15)
+#BROKERAGE_BRAND_AWARENESS_DF_PL_PERC
+
+new_row <- data.frame(
+  value = "Acrisure",
+  count = 0,
+  perc = 0,
+  new_perc = 0.03,
+  stringsAsFactors = FALSE
+)
+# Add the new row to the existing dataframe
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC <- rbind(BROKERAGE_BRAND_AWARENESS_DF_PL_PERC, new_row)
+
+bar_plot_percent_ordered(BROKERAGE_BRAND_AWARENESS_DF_PL_PERC, "value", "new_perc", "value", "BROKERAGE_BRAND_AWARENESS_PL.png", main_title = "", x_axis_label = " ", y_axis_label = "Pct. Selected",y_limits = c(0,0.1))
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2<-as.data.frame(BROKERAGE_BRAND_AWARENESS_DF_PL_PERC)
+
+
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC<-write.csv(BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2,"BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2.csv")
+str(BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2)
+
+```
+
+@fig-Brand-Awareness-Personal-Lines shows that most common insurance carriers respondents report being aware of are Allstate, Liberty Mutual, Nationwide and Statefarm.
+
+Lets look at **Commercial Lines Respondents** Awareness of the 8 brokerages.
+
+##### CL - Carrier Awareness
+
+```{r}
+#| label: fig-Brand-Awareness-Commercial-Lines
+#| fig-cap: Percentage of commercial lines respondents who report awareness of each insurance brokerage
+#| warning: false
+#| fig-alt: Bar-chart depicting the percentage of commercial respondents are aware of each insurance brokerage
+require(dplyr)
+BROKERAGE_BRAND_AWARENESS_DF_CL<-dplyr::select(BTQ2_CL,response_id,q300_shared_1,q300_shared_2,q300_shared_3,q300_shared_4,q300_shared_5,q300_shared_6,q300_shared_7,q300_shared_8,q300_shared_9,q300_shared_10, q300_shared_11,q300_shared_12,q300_shared_13,q300_shared_14,q300_shared_15)
+BROKERAGE_BRAND_AWARENESS_DF_CL_PERC <- process_data_pipeline_multiple_columns(BROKERAGE_BRAND_AWARENESS_DF_CL, id.var = c("response_id"), default_value = 0, group_column = c("value"))
+BROKERAGE_BRAND_AWARENESS_DF_CL_PERC
+
+BROKERAGE_BRAND_AWARENESS_DF_CL_PERC$new_perc<-(BROKERAGE_BRAND_AWARENESS_DF_CL_PERC$count/((134 * 10) / 15))
+
+new_row <- data.frame(
+  value = "Acrisure",
+  count = 0,
+  perc = 0,
+  new_perc = 0.33,
+  stringsAsFactors = FALSE
+)
+
+# Add the new row to the existing dataframe
+BROKERAGE_BRAND_AWARENESS_DF_CL_PERC <- rbind(BROKERAGE_BRAND_AWARENESS_DF_CL_PERC, new_row)
+
+
+bar_plot_percent_ordered(BROKERAGE_BRAND_AWARENESS_DF_CL_PERC, "value", "new_perc", "value",  "BROKERAGE_BRAND_AWARENESS_CL.png", main_title = "", x_axis_label = " ", y_axis_label = "Pct. Selected",y_limits = c(0,0.2))
+BROKERAGE_BRAND_AWARENESS_DF_CL_PERC_2<-as.data.frame(BROKERAGE_BRAND_AWARENESS_DF_CL_PERC)
+BROKERAGE_BRAND_AWARENESS_DF_CL_PERC<-write.csv(BROKERAGE_BRAND_AWARENESS_DF_CL_PERC_2,"BROKERAGE_BRAND_AWARENESS_DF_CL_PERC_2.csv")
+BROKERAGE_BRAND_AWARENESS_DF_CL_PERC_2
+```
+
+@fig-Brand-Awareness-Commercial-Lines shows that most common insurance carriers respondents report being aware of USAA, Statefram,Allstate, GEICO, Farmers, and Nationwide.
+
+
+Awareness of Carriers by LOB
+
+```{r}
+require(vtable)
+Awareness_By_LOB<-st(result,vars=c("q300_shared_1","q300_shared_2","q300_shared_3","q300_shared_4","q300_shared_5","q300_shared_6","q300_shared_7","q300_shared_8","q300_shared_9","q300_shared_10","q300_shared_11","q300_shared_12","q300_shared_13","q300_shared_14","q300_shared_15","q300_shared_16"),group="RESPONDENT_TYPE",out="csv",file="Awareness_By_LOB.csv")
+print(Awareness_By_LOB)
+```
+
+###Overall Banking Awareness
+
+```{r}
+levels(BTQ2$q302_shared_3) <- c("Novo")
+levels(BTQ2_CL$q302_shared_3) <- c("Novo")
+levels(BTQ2_PL$q302_shared_3) <- c("Novo")
+```
+
+###PL Banking Awareness
+
+```{r}
+BANK_BRAND_AWARENESS_DF_PL<-dplyr::select(BTQ2_PL,response_id,q302_shared_1,q302_shared_2,q302_shared_3,q302_shared_4,q302_shared_5,q302_shared_6,q302_shared_7,q302_shared_8,q302_shared_9)
+BANK_BRAND_AWARENESS_DF_PL
+
+library(dplyr)
+
+BANK_BRAND_AWARENESS_DF_PL <- BANK_BRAND_AWARENESS_DF_PL |>
+  filter(
+    !if_all(
+      .cols = starts_with("q302_shared_"),
+      .fns = is.na
+    )
+  )
+BANK_BRAND_AWARENESS_DF_PL
+```
+
+```{r}
+#| label: fig-Brand-Awareness-Banking-Personal-Lines
+#| fig-cap: Percentage of personal lines respondents who report awareness of each bank
+#| warning: false
+
+BANK_BRAND_AWARENESS_DF_PL<-dplyr::select(BANK_BRAND_AWARENESS_DF_PL,response_id,q302_shared_1,q302_shared_2,q302_shared_3,q302_shared_4,q302_shared_5,q302_shared_6,q302_shared_7,q302_shared_8,q302_shared_9)
+BANK_BRAND_AWARENESS_DF_PL_PERC <- process_data_pipeline_multiple_columns(BANK_BRAND_AWARENESS_DF_PL, id.var = c("response_id"), default_value = 0, group_column = c("value"))
+levels(BANK_BRAND_AWARENESS_DF_PL_PERC$value)[6] <- "Novo"  
+BANK_BRAND_AWARENESS_DF_PL_PERC
+
+
+
+new_row <- data.frame(
+  value = "Acrisure",
+  count = 0,
+  perc = 0,
+  new_perc = 0.03,
+  stringsAsFactors = FALSE
+)
+
+# Add the new row to the existing dataframe
+BANK_BRAND_AWARENESS_DF_PL_PERC <- rbind(BANK_BRAND_AWARENESS_DF_PL_PERC, new_row)
+
+
+bar_plot_percent_ordered(BANK_BRAND_AWARENESS_DF_PL_PERC, "value", "new_perc", "value", "BANK_BRAND_AWARENESS_PL.png", main_title = "", x_axis_label = " ", y_axis_label = "Pct. Selected",y_limits = c(0,0.1))
+BANK_BRAND_AWARENESS_DF_PL_PERC_2<-as.data.frame(BANK_BRAND_AWARENESS_DF_PL_PERC)
+BANK_BRAND_AWARENESS_DF_PL_PERC<-write.csv(BANK_BRAND_AWARENESS_DF_PL_PERC_2,"BANK_BRAND_AWARENESS_DF_PL_PERC_2.csv")
+str(BANK_BRAND_AWARENESS_DF_PL_PERC_2)
+```
+@fig-Brand-Awareness-Banking-Personal-Lines shows that the most common banks respondents report being aware of are SoFi(64%). There is a steap drop of as only 19% of PL respondents report being aware of Mercury.
+##### CL - Banking Awareness
+
+
+```{r}
+BANKING_BRAND_AWARENESS_DF_CL<-dplyr::select(BTQ2_CL,response_id,q302_shared_1,q302_shared_2,q302_shared_3,q302_shared_4,q302_shared_5,q302_shared_6,q302_shared_7,q302_shared_8,q302_shared_9)
+
+library(dplyr)
+
+BANKING_BRAND_AWARENESS_DF_CL <- BANKING_BRAND_AWARENESS_DF_CL |>
+  filter(
+    !if_all(
+      .cols = starts_with("q302_shared_"),
+      .fns = is.na
+    )
+  )
+BANKING_BRAND_AWARENESS_DF_CL
+```
+
+```{r}
+#| label: fig-Brand-Awareness-Banking-Commercial-Lines
+#| fig-cap: Percentage of commercial lines respondents who report awareness of each banking
+#| warning: false
+#| fig-alt: Bar-chart depicting the percentage of commercial respondents are aware of each banking
+require(dplyr)
+BANKING_BRAND_AWARENESS_DF_CL<-dplyr::select(BANKING_BRAND_AWARENESS_DF_CL,response_id,q302_shared_1,q302_shared_2,q302_shared_3,q302_shared_4,q302_shared_5,q302_shared_6,q302_shared_7,q302_shared_8,q302_shared_9)
+BANKING_BRAND_AWARENESS_DF_CL_PERC <- process_data_pipeline_multiple_columns(BANKING_BRAND_AWARENESS_DF_CL, id.var = c("response_id"), default_value = 0, group_column = c("value"))
+BANKING_BRAND_AWARENESS_DF_CL_PERC
+levels(BANKING_BRAND_AWARENESS_DF_CL_PERC$value)[8] <- "Novo"  
+
+
+
+new_row <- data.frame(
+  value = "Acrisure",
+  count = 0,
+  perc = 0,
+  new_perc = 0.33,
+  stringsAsFactors = FALSE
+)
+
+# Add the new row to the existing dataframe
+BANKING_BRAND_AWARENESS_DF_CL_PERC <- rbind(BANKING_BRAND_AWARENESS_DF_CL_PERC, new_row)
+
+
+
+bar_plot_percent_ordered(BANKING_BRAND_AWARENESS_DF_CL_PERC, "value", "new_perc", "value",  "BANKING_BRAND_AWARENESS_CL.png", main_title = "", x_axis_label = " ", y_axis_label = "Pct. Selected",y_limits = c(0,0.2))
+BANKING_BRAND_AWARENESS_DF_CL_PERC_2<-as.data.frame(BANKING_BRAND_AWARENESS_DF_CL_PERC)
+BANKING_BRAND_AWARENESS_DF_CL_PERC<-write.csv(BANKING_BRAND_AWARENESS_DF_CL_PERC_2,"BANKING_BRAND_AWARENESS_DF_CL_PERC_2.csv")
+str(BANKING_BRAND_AWARENESS_DF_CL_PERC_2)
+```
+
+@fig-Brand-Awareness-Banking-Commercial-Lines show that the most common banks that respondents report being aware of are SoFi (78%), Axos Bank (42%), Lili (41%) and Novo (40%).
+
+
+
+Awareness of Banking by LOB
+```{r}
+require(vtable)
+Awareness_Banking_By_LOB<-st(result,vars=c("q302_shared_1","q302_shared_2","q302_shared_3","q302_shared_4","q302_shared_5","q302_shared_6","q302_shared_7","q302_shared_8","q302_shared_9"),group="RESPONDENT_TYPE",out="csv",file="Awareness_Banking_By_LOB.csv")
+print(Awareness_Banking_By_LOB)
+```
+
+
+
+
+###Overall Payroll
+
+
+###PL Payroll Awareness
+
+
+```{r}
+PAYROLL_BRAND_AWARENESS_DF_PL<-dplyr::select(BTQ2_PL,response_id,q304_shared_1,q304_shared_2,q304_shared_3,q304_shared_4,q304_shared_5,q304_shared_6,q304_shared_7,q304_shared_8,q304_shared_9)
+library(dplyr)
+
+PAYROLL_BRAND_AWARENESS_DF_PL <- PAYROLL_BRAND_AWARENESS_DF_PL |>
+  filter(
+    !if_all(
+      .cols = starts_with("q304_shared_"),
+      .fns = is.na
+    )
+  )
+PAYROLL_BRAND_AWARENESS_DF_PL
+```
+
+```{r}
+#| label: fig-Brand-Awareness-Payroll-Personal-Lines
+#| fig-cap: Percentage of personal lines respondents who report awareness of each bank
+#| warning: false
+
+PAYROLL_BRAND_AWARENESS_DF_PL<-dplyr::select(PAYROLL_BRAND_AWARENESS_DF_PL,response_id,q304_shared_1,q304_shared_2,q304_shared_3,q304_shared_4,q304_shared_5,q304_shared_6,q304_shared_7,q304_shared_8,q304_shared_9)
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC <- process_data_pipeline_multiple_columns(PAYROLL_BRAND_AWARENESS_DF_PL, id.var = c("response_id"), default_value = 0, group_column = c("value"))
+
+
+new_row <- data.frame(
+  value = "Acrisure",
+  count = 0,
+  perc = 0,
+  new_perc = 0.03,
+  stringsAsFactors = FALSE
+)
+
+# Add the new row to the existing dataframe
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC <- rbind(PAYROLL_BRAND_AWARENESS_DF_PL_PERC, new_row)
+
+
+bar_plot_percent_ordered(PAYROLL_BRAND_AWARENESS_DF_PL_PERC, "value", "new_perc", "value", "PAYROLL_BRAND_AWARENESS_DF_PL_PERc.png", main_title = "", x_axis_label = " ", y_axis_label = "Pct. Selected",y_limits = c(0,0.1))
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2<-as.data.frame(PAYROLL_BRAND_AWARENESS_DF_PL_PERC)
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC<-write.csv(PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2,"PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2.csv")
+str(PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2)
+```
+
+
+@fig-Brand-Awareness-Payroll-Personal-Lines shows that overall awareness of payroll companies is low. 23% of respondents report awareness of Intuit Quicbookl and 16% report awareness of ADP.
+
+
+
+```{r}
+PAYROLL_BRAND_AWARENESS_DF_CL<-dplyr::select(BTQ2_CL,response_id,q304_shared_1,q304_shared_2,q304_shared_3,q304_shared_4,q304_shared_5,q304_shared_6,q304_shared_7,q304_shared_8,q304_shared_9)
+library(dplyr)
+
+PAYROLL_BRAND_AWARENESS_DF_CL <- PAYROLL_BRAND_AWARENESS_DF_CL |>
+  filter(
+    !if_all(
+      .cols = starts_with("q304_shared_"),
+      .fns = is.na
+    )
+  )
+PAYROLL_BRAND_AWARENESS_DF_CL
+```
+
+##### CL - Payroll Awareness
+
+```{r}
+#| label: fig-Brand-Awareness-Payroll-Commercial-Lines
+#| fig-cap: Percentage of commercial lines respondents who report awareness of each payroll
+#| warning: false
+#| fig-alt: Bar-chart depicting the percentage of commercial respondents are aware of each payroll
+require(dplyr)
+PAYROLL_BRAND_AWARENESS_DF_CL<-dplyr::select(PAYROLL_BRAND_AWARENESS_DF_CL,response_id,q304_shared_1,q304_shared_2,q304_shared_3,q304_shared_4,q304_shared_5,q304_shared_6,q304_shared_7,q304_shared_8,q304_shared_9)
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC <- process_data_pipeline_multiple_columns(PAYROLL_BRAND_AWARENESS_DF_CL, id.var = c("response_id"), default_value = 0, group_column = c("value"))
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC
+
+
+new_row <- data.frame(
+  value = "Acrisure",
+  count = 0,
+  perc = 0,
+  new_perc = 0.33,
+  stringsAsFactors = FALSE
+)
+
+# Add the new row to the existing dataframe
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC <- rbind(PAYROLL_BRAND_AWARENESS_DF_CL_PERC, new_row)
+
+bar_plot_percent_ordered(PAYROLL_BRAND_AWARENESS_DF_CL_PERC, "value", "new_perc", "value",  "PAYROLL_BRAND_AWARENESS_DF_CL_PERC.png", main_title = "", x_axis_label = " ", y_axis_label = "Pct. Selected",y_limits = c(0,0.2))
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2<-as.data.frame(PAYROLL_BRAND_AWARENESS_DF_CL_PERC)
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC<-write.csv(PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2,"PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2.csv")
+str(PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2)
+```
+
+
+
+
+@ffig-Brand-Awareness-Payroll-Commercial-Lines shows a more even awareness of payroll companies. Among CL respondents 18% report awareness of Intuit Quickbooks and ADP and 17% report awareness of Paychex.
+
+Awareness of Payroll by LOB
+```{r}
+require(vtable)
+Awareness_Payroll_By_LOB<-st(result,vars=c("q304_shared_1","q304_shared_2","q304_shared_3","q304_shared_4","q304_shared_5","q304_shared_6","q304_shared_7","q304_shared_8","q304_shared_9"),group="RESPONDENT_TYPE",out="csv",file="Awareness_Payroll_By_LOB.csv")
+print(Awareness_Payroll_By_LOB)
+```
+
+### Brand Metrics - Carriers - NPS
+
+```{r}
+MEAN_CL_ACRISURE_AWARENESS<-as.numeric(as.factor(BTQ2_CL$q75_shared_1))
+MEAN_CL_ACRISURE_AWARENESS<-sum(MEAN_CL_ACRISURE_AWARENESS,na.rm=TRUE)
+MEAN_CL_ACRISURE_AWARENESS<-MEAN_CL_ACRISURE_AWARENESS/403
+MEAN_CL_ACRISURE_AWARENESS<-MEAN_CL_ACRISURE_AWARENESS*100
+BTQ2_CL$q43_shared_1<-as.numeric(as.factor(BTQ2_CL$q43_shared_1))
+MEAN_CL_ACRISURE_NPS<-mean(BTQ2_CL$q43_shared_1,na.rm = TRUE)
+MEAN_PL_ACRISURE_AWARENESS<-as.numeric(as.factor(BTQ2_PL$q75_shared_1))
+MEAN_PL_ACRISURE_AWARENESS<-sum(MEAN_PL_ACRISURE_AWARENESS,na.rm=TRUE)
+MEAN_PL_ACRISURE_AWARENESS<-MEAN_PL_ACRISURE_AWARENESS/592
+MEAN_PL_ACRISURE_AWARENESS<-MEAN_PL_ACRISURE_AWARENESS*100
+BTQ2_PL$q43_shared_1<-as.numeric(as.factor(BTQ2_PL$q43_shared_1))
+MEAN_PL_ACRISURE_NPS<-mean(BTQ2_PL$q43_shared_1,na.rm = TRUE)
+MEAN_CL_ACRISURE_NPS
+MEAN_PL_ACRISURE_NPS
+MEAN_PL_ACRISURE_AWARENESS
+MEAN_CL_ACRISURE_AWARENESS
+```
+
+
+MEAN_PL_ACRISURE_NPS,MEAN_PL_ACRISURE_AWARENESS
+MEAN_CL_ACRISURE_NPS,MEAN_CL_ACRISURE_AWARENESS
+CL & PL
+
+```{r}
+
+BTQ2_CARRIER_NPS_CL <-dplyr::select(BTQ2_CL,response_id,q301_shared_1,q301_shared_2,q301_shared_3,q301_shared_4,q301_shared_5,q301_shared_6
+,q301_shared_7,q301_shared_8,q301_shared_9,q301_shared_10, q301_shared_11,q301_shared_12,q301_shared_13,q301_shared_14,q301_shared_15)
+BTQ2_CARRIER_NPS_CL
+
+BTQ2_CARRIER_NPS_PL <-dplyr::select(BTQ2_PL,response_id,q301_shared_1,q301_shared_2,q301_shared_3,q301_shared_4,q301_shared_5,q301_shared_6
+,q301_shared_7,q301_shared_8,q301_shared_9,q301_shared_10, q301_shared_11,q301_shared_12,q301_shared_13,q301_shared_14,q301_shared_15)
+BTQ2_CARRIER_NPS_PL
+```
+Commercial Lines
+```{r}
+
+# Define the Likert scale levels
+likert_levels <- c("Not at all likely", "Somewhat likely", "Likely", "Very likely", "Extremely likely")
+
+# Get all column names that match the pattern
+shared_cols <- grep("^q301_shared_", names(BTQ2_CARRIER_NPS_CL), value = TRUE)
+
+# Loop through only the existing columns
+for (col in shared_cols) {
+  BTQ2_CARRIER_NPS_CL[[col]] <- factor(BTQ2_CARRIER_NPS_CL[[col]],
+                                       levels = likert_levels,
+                                       ordered = TRUE)
+}
+
+
+# Define the mapping from labels to numeric values
+likert_map <- c(
+  "Not at all likely" = 1,
+  "Somewhat likely"   = 2,
+  "Likely"            = 3,
+  "Very likely"       = 4,
+  "Extremely likely"  = 5
+)
+
+# Get all relevant column names
+shared_cols <- grep("^q301_shared_", names(BTQ2_CARRIER_NPS_CL), value = TRUE)
+
+# Apply the mapping safely
+for (col in shared_cols) {
+  BTQ2_CARRIER_NPS_CL[[col]] <- as.numeric(likert_map[as.character(BTQ2_CARRIER_NPS_CL[[col]])])
+}
+BTQ2_CARRIER_NPS_CL
+# Update brand names accordingly
+# Create a named vector of means
+CL_CARRIER_MEANS <- data.frame(
+  BRAND = c("Allstate","GEICO","Liberty Mutual", "Progressive","State Farm","Travelers","Farmers","The General", "American Family", "Nationwide", "Chubb","USAA","The Hartford",
+ "CNA", "The Hanover Group","Acrisure"),
+  
+  MEAN_SCORE = c(
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_1, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_2, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_3, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_4, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_5, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_6, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_7, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_8, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_9, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_10, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_11, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_12, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_13, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_14, na.rm = TRUE),
+    mean(BTQ2_CARRIER_NPS_CL$q301_shared_15, na.rm = TRUE),
+    MEAN_CL_ACRISURE_NPS
+  )
+)
+
+CL_CARRIER_MEANS
+
+```
+ 
+
+Personal lines
+
+```{r}
+
+# Load required package
+library(stringr)
+
+# Define the Likert scale levels in order
+likert_levels <- c(
+  "Not at all likely",
+  "Somewhat likely",
+  "Likely",
+  "Very likely",
+  "Extremely likely"
+)
+
+# Define the mapping from labels to numeric values
+likert_map <- c(
+  "Not at all likely" = 1,
+  "Somewhat likely"   = 2,
+  "Likely"            = 3,
+  "Very likely"       = 4,
+  "Extremely likely"  = 5
+)
+
+# Identify all columns matching the Likert pattern
+shared_cols <- grep("^q301_shared_", names(BTQ2_CARRIER_NPS_PL), value = TRUE)
+
+# Step 1: Ensure all values are correctly factored and cleaned
+for (col in shared_cols) {
+  BTQ2_CARRIER_NPS_PL[[col]] <- BTQ2_CARRIER_NPS_PL[[col]] |>
+    as.character() |>
+    str_trim() |>
+    factor(levels = likert_levels, ordered = TRUE)
+}
+
+# Step 2: Convert factor labels to numeric values using the Likert map
+for (col in shared_cols) {
+  BTQ2_CARRIER_NPS_PL[[col]] <- BTQ2_CARRIER_NPS_PL[[col]] |>
+    as.character() |>
+    str_trim() |>
+    (\(x) as.numeric(likert_map[x]))()
+}
+
+# Step 3: Compute mean scores for each column/brand
+PL_CARRIER_MEANS <- data.frame(
+  BRAND = c(
+    "Allstate", "GEICO", "Liberty Mutual", "Progressive", "State Farm",
+    "Travelers", "Farmers", "The General", "American Family", "Nationwide",
+    "Chubb", "USAA", "The Hartford", "CNA", "The Hanover Group"
+  ),
+  MEAN_SCORE = sapply(paste0("q301_shared_", 1:15), function(col) {
+    mean(BTQ2_CARRIER_NPS_PL[[col]], na.rm = TRUE)
+  })
+)
+PL_CARRIER_MEANS
+
+
+
+new_row <- data.frame(
+  BRAND = "Acrisure",
+  MEAN_SCORE=MEAN_PL_ACRISURE_NPS
+)
+
+# Add the new row to the existing dataframe
+PL_CARRIER_MEANS <- rbind(PL_CARRIER_MEANS, new_row)
+
+```
+
+### Brand Metrics - Banks - NPS
+```{r}
+
+BTQ2_BANKS_NPS_CL <-dplyr::select(BTQ2_CL,response_id,q303_shared_1,q303_shared_2,q303_shared_3,q303_shared_4,q303_shared_5,q303_shared_6
+,q303_shared_7,q303_shared_8,q303_shared_9)
+BTQ2_BANKS_NPS_CL
+
+BTQ2_BANKS_NPS_PL <-dplyr::select(BTQ2_PL,response_id,q303_shared_1,q303_shared_2,q303_shared_3,q303_shared_4,q303_shared_5,q303_shared_6
+,q303_shared_7,q303_shared_8,q303_shared_9)
+BTQ2_BANKS_NPS_PL
+  
+```
+
+
+Commercial Lines
+```{r}
+
+# Define the Likert scale levels
+likert_levels <- c("Not at all likely", "Somewhat likely", "Likely", "Very likely", "Extremely likely")
+
+# Get all column names that match the pattern
+shared_cols <- grep("^q303_shared_", names(BTQ2_BANKS_NPS_CL), value = TRUE)
+
+# Loop through only the existing columns
+for (col in shared_cols) {
+  BTQ2_BANKS_NPS_CL[[col]] <- factor(BTQ2_BANKS_NPS_CL[[col]],
+                                       levels = likert_levels,
+                                       ordered = TRUE)
+}
+
+BTQ2_BANKS_NPS_CL
+
+
+# Define the Likert scale mapping
+likert_map <- c(
+  "Not at all likely" = 1,
+  "Somewhat likely"   = 2,
+  "Likely"            = 3,
+  "Very likely"       = 4,
+  "Extremely likely"  = 5
+)
+
+# Get all relevant column names
+shared_cols <- grep("^q303_shared_", names(BTQ2_BANKS_NPS_CL), value = TRUE)
+
+# Apply the mapping safely
+for (col in shared_cols) {
+  BTQ2_BANKS_NPS_CL[[col]] <- as.numeric(likert_map[as.character(BTQ2_BANKS_NPS_CL[[col]])])
+}
+BTQ2_BANKS_NPS_CL
+# Update brand names accordingly
+# Create a named vector of means
+CL_BANK_MEANS <- data.frame(
+  BRAND = c("SoFi","Bluevine","Novo","Mercury","Brex","Lili","Axos","Bill"),
+  
+  MEAN_SCORE = c(
+    mean(BTQ2_BANKS_NPS_CL$q303_shared_1, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_CL$q303_shared_2, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_CL$q303_shared_3, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_CL$q303_shared_4, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_CL$q303_shared_5, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_CL$q303_shared_6, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_CL$q303_shared_7, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_CL$q303_shared_8, na.rm = TRUE)
+  )
+)
+
+CL_BANK_MEANS
+
+
+new_row <- data.frame(
+  BRAND = "Acrisure",
+  MEAN_SCORE=MEAN_CL_ACRISURE_NPS
+)
+
+# Add the new row to the existing dataframe
+CL_BANK_MEANS <- rbind(CL_BANK_MEANS, new_row)
+CL_BANK_MEANS
+```
+
+
+
+Personal lines
+```{r}
+# Define the Likert scale levels
+
+likert_levels <- c("Not at all likely", "Somewhat likely", "Likely", "Very likely", "Extremely likely")
+
+# Get all column names that match the pattern
+
+shared_cols <- grep("^q303_shared_", names(BTQ2_BANKS_NPS_PL), value = TRUE)
+
+
+# Loop through only the existing columns
+for (col in shared_cols) {
+  BTQ2_BANKS_NPS_PL[[col]] <- factor(BTQ2_BANKS_NPS_PL[[col]],
+                                       levels = likert_levels,
+                                       ordered = TRUE)
+}
+
+BTQ2_BANKS_NPS_PL
+
+
+
+
+# Define the mapping from labels to numeric values
+likert_map <- c(
+  "Not at all likely" = 1,
+  "Somewhat likely"   = 2,
+  "Likely"            = 3,
+  "Very likely"       = 4,
+  "Extremely likely"  = 5
+)
+
+# Get all relevant column names
+shared_cols <- grep("^q303_shared_", names(BTQ2_BANKS_NPS_PL), value = TRUE)
+
+# Apply the mapping safely
+for (col in shared_cols) {
+  BTQ2_BANKS_NPS_PL[[col]] <- as.numeric(likert_map[as.character(BTQ2_BANKS_NPS_PL[[col]])])
+}
+BTQ2_BANKS_NPS_PL
+# Update brand names accordingly
+# Create a named vector of means
+PL_BANK_MEANS <- data.frame(
+  BRAND = c("SoFi","Bluevine","Novo","Mercury","Brex","Lili","Axos","Bill"),
+  
+  MEAN_SCORE = c(
+    mean(BTQ2_BANKS_NPS_PL$q303_shared_1, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_PL$q303_shared_2, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_PL$q303_shared_3, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_PL$q303_shared_4, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_PL$q303_shared_5, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_PL$q303_shared_6, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_PL$q303_shared_7, na.rm = TRUE),
+    mean(BTQ2_BANKS_NPS_PL$q303_shared_8, na.rm = TRUE)
+  )
+)
+
+PL_BANK_MEANS
+
+
+
+new_row <- data.frame(
+  BRAND = "Acrisure",
+  MEAN_SCORE=MEAN_PL_ACRISURE_NPS
+)
+
+# Add the new row to the existing dataframe
+PL_BANK_MEANS <- rbind(PL_BANK_MEANS, new_row)
+PL_BANK_MEANS
+
+```
+
+
+
+
+### Brand Metrics - Payroll - NPS
+```{r}
+
+BTQ2_PAYROLL_NPS_CL <-dplyr::select(BTQ2_CL,response_id,q305_shared_1,q305_shared_2,q305_shared_3,q305_shared_4,q305_shared_5,q305_shared_6
+,q305_shared_7,q305_shared_8,q305_shared_9)
+BTQ2_PAYROLL_NPS_CL
+
+BTQ2_PAYROLL_NPS_PL <-dplyr::select(BTQ2_PL,response_id,q305_shared_1,q305_shared_2,q305_shared_3,q305_shared_4,q305_shared_5,q305_shared_6
+,q305_shared_7,q305_shared_8,q305_shared_9)
+BTQ2_PAYROLL_NPS_PL  
+```
+
+
+
+Commercial Lines
+```{r}
+
+# Define the Likert scale levels
+likert_levels <- c("Not at all likely", "Somewhat likely", "Likely", "Very likely", "Extremely likely")
+
+# Get all column names that match the pattern
+shared_cols <- grep("^q305_shared_", names(BTQ2_PAYROLL_NPS_CL), value = TRUE)
+
+# Loop through only the existing columns
+for (col in shared_cols) {
+  BTQ2_PAYROLL_NPS_CL[[col]] <- factor(BTQ2_PAYROLL_NPS_CL[[col]],
+                                       levels = likert_levels,
+                                       ordered = TRUE)
+}
+
+BTQ2_PAYROLL_NPS_CL
+
+
+
+# Define the mapping from labels to numeric values
+likert_map <- c(
+  "Not at all likely" = 1,
+  "Somewhat likely"   = 2,
+  "Likely"            = 3,
+  "Very likely"       = 4,
+  "Extremely likely"  = 5
+)
+
+# Get all relevant column names
+shared_cols <- grep("^q305_shared_", names(BTQ2_PAYROLL_NPS_CL), value = TRUE)
+
+# Apply the mapping safely
+for (col in shared_cols) {
+  BTQ2_PAYROLL_NPS_CL[[col]] <- as.numeric(likert_map[as.character(BTQ2_PAYROLL_NPS_CL[[col]])])
+}
+BTQ2_PAYROLL_NPS_CL
+
+
+
+
+# Create a named vector of means
+CL_PAYROLL_MEANS <- data.frame(
+  BRAND = c("Intuit Quickbooks","ADP","Paychex","Gusto","Rippling","SurveyPayroll","Wave","Onpay"),
+  
+  MEAN_SCORE = c(
+    mean(BTQ2_PAYROLL_NPS_CL$q305_shared_1, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_CL$q305_shared_2, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_CL$q305_shared_3, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_CL$q305_shared_4, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_CL$q305_shared_5, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_CL$q305_shared_6, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_CL$q305_shared_7, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_CL$q305_shared_8, na.rm = TRUE)
+  )
+)
+
+
+
+CL_PAYROLL_MEANS
+
+
+
+new_row <- data.frame(
+  BRAND = "Acrisure",
+  MEAN_SCORE=MEAN_CL_ACRISURE_NPS
+)
+
+# Add the new row to the existing dataframe
+CL_PAYROLL_MEANS <- rbind(CL_PAYROLL_MEANS, new_row)
+CL_PAYROLL_MEANS
+
+
+
+```
+
+
+
+Personal lines
+```{r}
+# Define the Likert scale levels
+
+likert_levels <- c("Not at all likely", "Somewhat likely", "Likely", "Very likely", "Extremely likely")
+
+# Get all column names that match the pattern
+
+shared_cols <- grep("^q305_shared_", names(BTQ2_BANKS_NPS_PL), value = TRUE)
+
+
+# Loop through only the existing columns
+for (col in shared_cols) {
+  BTQ2_PAYROLL_NPS_PL[[col]] <- factor(BTQ2_PAYROLL_NPS_PL[[col]],
+                                       levels = likert_levels,
+                                       ordered = TRUE)
+}
+
+BTQ2_PAYROLL_NPS_PL
+
+
+
+# Define the mapping from labels to numeric values
+likert_map <- c(
+  "Not at all likely" = 1,
+  "Somewhat likely"   = 2,
+  "Likely"            = 3,
+  "Very likely"       = 4,
+  "Extremely likely"  = 5
+)
+
+# Get all relevant column names
+shared_cols <- grep("^q305_shared_", names(BTQ2_PAYROLL_NPS_PL), value = TRUE)
+
+# Apply the mapping safely
+for (col in shared_cols) {
+  BTQ2_PAYROLL_NPS_PL[[col]] <- as.numeric(likert_map[as.character(BTQ2_PAYROLL_NPS_PL[[col]])])
+}
+BTQ2_PAYROLL_NPS_PL
+
+
+
+
+# Create a named vector of means
+PL_PAYROLL_MEANS <- data.frame(
+  BRAND = c("Intuit Quickbooks","ADP","Paychex","Gusto","Rippling","SurveyPayroll","Wave","Onpay"),
+  
+  MEAN_SCORE = c(
+    mean(BTQ2_PAYROLL_NPS_PL$q305_shared_1, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_PL$q305_shared_2, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_PL$q305_shared_3, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_PL$q305_shared_4, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_PL$q305_shared_5, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_PL$q305_shared_6, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_PL$q305_shared_7, na.rm = TRUE),
+    mean(BTQ2_PAYROLL_NPS_PL$q305_shared_8, na.rm = TRUE)
+  )
+)
+
+
+
+PL_PAYROLL_MEANS
+
+
+
+new_row <- data.frame(
+  BRAND = "Acrisure",
+  MEAN_SCORE=MEAN_PL_ACRISURE_NPS
+)
+
+# Add the new row to the existing dataframe
+PL_PAYROLL_MEANS <- rbind(PL_PAYROLL_MEANS, new_row)
+PL_PAYROLL_MEANS
+
+
+```
+
+
+Now lets focus on binding the dataframes and plotting them
+```{r}
+
+PL_CARRIER_MEANS
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2
+library(dplyr)
+
+# Define the list of brands
+BRAND <- c(
+  "Allstate", "GEICO", "Liberty Mutual", "Progressive", "State Farm",
+  "Travelers", "Farmers", "The General", "American Family", "Nationwide",
+  "Chubb", "USAA", "The Hartford", "CNA", "The Hanover Group", "Acrisure"
+)
+
+# Add the BRAND column to the dataframe
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2$BRAND <- BRAND
+
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2 <- BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2 |>
+  mutate(BRAND = ifelse(BRAND == "American Family Insurance", "American Family", BRAND))
+BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2
+```
+Merge the dataframes to create the graph
+
+MEAN_PL_ACRISURE_NPS,MEAN_PL_ACRISURE_AWARENESS
+MEAN_CL_ACRISURE_NPS,MEAN_CL_ACRISURE_AWARENESS
+
+```{R}
+
+library(dplyr)
+
+merged_df_PL_CARRIER_AWARE_NPS <- PL_CARRIER_MEANS |>
+  inner_join(BROKERAGE_BRAND_AWARENESS_DF_PL_PERC_2, by = "BRAND")
+merged_df_PL_CARRIER_AWARE_NPS
+merged_df_PL_CARRIER_AWARE_NPS_reduced<-dplyr::select(merged_df_PL_CARRIER_AWARE_NPS,BRAND,MEAN_SCORE,new_perc)
+merged_df_PL_CARRIER_AWARE_NPS_reduced$new_perc<-round(merged_df_PL_CARRIER_AWARE_NPS_reduced$new_perc*100,0)
+merged_df_PL_CARRIER_AWARE_NPS_reduced
+merged_df_PL_CARRIER_AWARE_NPS_reduced <- merged_df_PL_CARRIER_AWARE_NPS_reduced |>
+  bind_rows(tibble(
+    BRAND = "Acrisure",
+    MEAN_SCORE = 1.9,
+    new_perc = 3
+  ))
+merged_df_PL_CARRIER_AWARE_NPS_reduced
+merged_df_PL_CARRIER_AWARE_NPS_reduced<-merged_df_PL_CARRIER_AWARE_NPS_reduced[-17,]
+```
+
+
+MEAN_CL_ACRISURE_NPS
+MEAN_PL_ACRISURE_NPS
+MEAN_PL_ACRISURE_AWARENESS
+MEAN_CL_ACRISURE_AWARENESS
+
+```{r}
+p0<-save_scatter_plot(data = merged_df_PL_CARRIER_AWARE_NPS_reduced, x = "new_perc", y = "MEAN_SCORE", fill = "BRAND", file_name = "PL-Carrier-Awarenes-NPS.png")
+print(p0)
+```
+
+Merge the banking data for CL
+
+````{r}
+names(BANKING_BRAND_AWARENESS_DF_CL_PERC_2)[
+  names(BANKING_BRAND_AWARENESS_DF_CL_PERC_2) == "value"
+] <- "BRAND"
+
+BANKING_BRAND_AWARENESS_DF_CL_PERC_2$BRAND <- str_replace_all(BANKING_BRAND_AWARENESS_DF_CL_PERC_2$BRAND, "\\n", "")
+BANKING_BRAND_AWARENESS_DF_CL_PERC_2$BRAND <- str_trim(BANKING_BRAND_AWARENESS_DF_CL_PERC_2$BRAND)
+
+CL_BANK_MEANS<-CL_BANK_MEANS[-9,]
+BANKING_BRAND_AWARENESS_DF_CL_PERC_2<-BANKING_BRAND_AWARENESS_DF_CL_PERC_2[-10,]
+BANKING_BRAND_AWARENESS_DF_CL_PERC_2
+```
+
+```{r}
+require(dplyr)
+BANKING_BRAND_AWARENESS_DF_CL_PERC_2 <- BANKING_BRAND_AWARENESS_DF_CL_PERC_2 |>
+  mutate(
+    BRAND = case_when(
+      BRAND == "Axos Bank" ~ "Axos",
+      BRAND == "BILL" ~ "Bill",
+      TRUE ~ BRAND
+    )
+  )
+```
+
+
+
+```{r}
+merged_df_CL_BANK_AWARE_NPS <- CL_BANK_MEANS |>
+  inner_join(BANKING_BRAND_AWARENESS_DF_CL_PERC_2, by = "BRAND")
+merged_df_CL_BANK_AWARE_NPS
+merged_df_CL_BANK_AWARE_NPS_reduced<-dplyr::select(merged_df_CL_BANK_AWARE_NPS,BRAND,MEAN_SCORE,new_perc)
+merged_df_CL_BANK_AWARE_NPS_reduced$new_perc<-round(merged_df_CL_BANK_AWARE_NPS_reduced$new_perc*100,0)
+merged_df_CL_BANK_AWARE_NPS_reduced
+
+merged_df_CL_BANK_AWARE_NPS_reduced<- merged_df_CL_BANK_AWARE_NPS_reduced |>
+  bind_rows(tibble(
+    BRAND = "Acrisure",
+    MEAN_SCORE = 4.1,
+    new_perc = 33
+  ))
+merged_df_CL_BANK_AWARE_NPS_reduced<-merged_df_CL_BANK_AWARE_NPS_reduced[-10,]
+merged_df_CL_BANK_AWARE_NPS_reduced
+```
+
+```{r}
+median(merged_df_CL_BANK_AWARE_NPS_reduced$MEAN_SCORE)
+median(merged_df_CL_BANK_AWARE_NPS_reduced$new_perc)
+```
+
+
+
+```{r}
+p1<-save_scatter_plot(data = merged_df_CL_BANK_AWARE_NPS_reduced, x = "new_perc", y = "MEAN_SCORE", fill = "BRAND", file_name = "CL-BANK-Awarenes-NPS.png")
+print(p1)
+```
+
+
+
+Merge the banking data for PL
+```{r}
+names(BANK_BRAND_AWARENESS_DF_PL_PERC_2)[
+  names(BANK_BRAND_AWARENESS_DF_PL_PERC_2) == "value"
+] <- "BRAND"
+
+BANK_BRAND_AWARENESS_DF_PL_PERC_2$BRAND <- str_replace_all(BANK_BRAND_AWARENESS_DF_PL_PERC_2$BRAND, "\\n", "")
+BANK_BRAND_AWARENESS_DF_PL_PERC_2$BRAND <- str_trim(BANK_BRAND_AWARENESS_DF_PL_PERC_2$BRAND)
+
+PL_BANK_MEANS<-PL_BANK_MEANS[-9,]
+BANK_BRAND_AWARENESS_DF_PL_PERC_2<-BANK_BRAND_AWARENESS_DF_PL_PERC_2[-8,]
+```
+
+```{r}
+require(dplyr)
+BANK_BRAND_AWARENESS_DF_PL_PERC_2 <- BANK_BRAND_AWARENESS_DF_PL_PERC_2 |>
+  mutate(
+    BRAND = case_when(
+      BRAND == "Axos Bank" ~ "Axos",
+      BRAND == "BILL" ~ "Bill",
+      TRUE ~ BRAND
+    )
+  )
+```
+
+```{r}
+merged_df_PL_BANK_AWARE_NPS <- PL_BANK_MEANS |>
+  inner_join(BANK_BRAND_AWARENESS_DF_PL_PERC_2, by = "BRAND")
+merged_df_PL_BANK_AWARE_NPS
+merged_df_PL_BANK_AWARE_NPS_reduced<-dplyr::select(merged_df_PL_BANK_AWARE_NPS,BRAND,MEAN_SCORE,new_perc)
+merged_df_PL_BANK_AWARE_NPS_reduced$new_perc<-round(merged_df_PL_BANK_AWARE_NPS_reduced$new_perc*100,0)
+merged_df_PL_BANK_AWARE_NPS_reduced
+
+
+merged_df_PL_BANK_AWARE_NPS_reduced<- merged_df_PL_BANK_AWARE_NPS_reduced |>
+  bind_rows(tibble(
+    BRAND = "Acrisure",
+    MEAN_SCORE = 1.9,
+    new_perc = 3
+  ))
+merged_df_PL_BANK_AWARE_NPS_reduced
+```
+SoFi	2.015625	64		
+Bluevine	NaN	1		
+Novo	2.500000	9		
+Mercury	2.250000	19		
+Lili	2.000000	13		
+Axos	1.909091	9		
+Acrisure
+
+```{r}
+NSP_median<-median(merged_df_PL_BANK_AWARE_NPS_reduced$MEAN_SCORE,na.rm = TRUE)
+NSP_median
+med_perc<-median(merged_df_PL_BANK_AWARE_NPS_reduced$new_perc,na.rm = TRUE)
+med_perc
+```
+
+```{r}
+p2<-save_scatter_plot(data = merged_df_PL_BANK_AWARE_NPS_reduced, x = "new_perc", y = "MEAN_SCORE", fill = "BRAND", file_name = "PL-BANK-Awarenes-NPS.png")
+print(p2)
+```
+
+
+
+Commercial lines payroll awareness and NPS
+````{r}
+names(PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2)[
+  names(PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2) == "value"
+] <- "BRAND"
+
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2$BRAND <- str_replace_all(PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2$BRAND, "\\n", "")
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2$BRAND <- str_trim(PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2$BRAND)
+
+CL_PAYROLL_MEANS
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2
+```
+
+```{r}
+require(dplyr)
+CL_PAYROLL_MEANS <- CL_PAYROLL_MEANS |>
+  mutate(
+    BRAND = case_when(
+      BRAND == "SurveyPayroll" ~ "SurePayroll",
+      BRAND == "Intuit Quickbooks" ~ "Intuit Quickbooks",
+      BRAND == "OnPay" ~ "OnPay",
+      TRUE ~ BRAND
+    )
+  )
+CL_PAYROLL_MEANS
+
+
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2<- PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2 |>
+  mutate(
+    BRAND = case_when(
+      BRAND == "SurveyPayroll" ~ "SurePayroll",
+      BRAND == "Intuit Quickbooks" ~ "Intuit Quickbooks",
+      BRAND == "OnPay" ~ "OnPay",
+      TRUE ~ BRAND
+    )
+  )
+PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2
+```
+
+None of the above	
+
+```{r}
+merged_df_CL_PAYROLL_AWARE_NPS <- CL_PAYROLL_MEANS |>
+  inner_join(PAYROLL_BRAND_AWARENESS_DF_CL_PERC_2, by = "BRAND")
+merged_df_CL_PAYROLL_AWARE_NPS
+merged_df_CL_PAYROLL_AWARE_NPS_reduced<-dplyr::select(merged_df_CL_PAYROLL_AWARE_NPS,BRAND,MEAN_SCORE,new_perc)
+merged_df_CL_PAYROLL_AWARE_NPS_reduced$new_perc<-round(merged_df_CL_PAYROLL_AWARE_NPS_reduced$new_perc*100,0)
+merged_df_CL_PAYROLL_AWARE_NPS_reduced
+
+merged_df_CL_PAYROLL_AWARE_NPS_reduced<- merged_df_CL_PAYROLL_AWARE_NPS_reduced |>
+  bind_rows(tibble(
+    BRAND = c("Acrisure","Intuit QuickBooks","OnPay"),
+    MEAN_SCORE = c(4.1,3.953125,3.833333	),
+    new_perc = c(33,58,29),
+  ))
+merged_df_CL_PAYROLL_AWARE_NPS_reduced<-merged_df_CL_PAYROLL_AWARE_NPS_reduced[-7,]
+merged_df_CL_PAYROLL_AWARE_NPS_reduced
+```
+
+```{r}
+median(merged_df_CL_PAYROLL_AWARE_NPS_reduced$MEAN_SCORE)
+median(merged_df_CL_PAYROLL_AWARE_NPS_reduced$new_perc)
+merged_df_CL_PAYROLL_AWARE_NPS_reduced
+```
+
+
+```{r}
+p3<-save_scatter_plot(data = merged_df_CL_PAYROLL_AWARE_NPS_reduced, x = "new_perc", y = "MEAN_SCORE", fill = "BRAND", file_name = "CL-PAYROLL-Awarenes-NPS.png")
+print(p3)
+```
+
+
+```{r}
+median(merged_df_CL_PAYROLL_AWARE_NPS_reduced$MEAN_SCORE)
+median(merged_df_CL_PAYROLL_AWARE_NPS_reduced$new_perc)
+```
+
+
+Personal lines payroll awareness and NPS
+````{r}
+names(PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2)[
+  names(PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2) == "value"
+] <- "BRAND"
+
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2$BRAND <- str_replace_all(PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2$BRAND, "\\n", "")
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2$BRAND <- str_trim(PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2$BRAND)
+
+CL_PAYROLL_MEANS
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2
+```
+
+```{r}
+require(dplyr)
+PL_PAYROLL_MEANS <- PL_PAYROLL_MEANS |>
+  mutate(
+    BRAND = case_when(
+      BRAND == "SurveyPayroll" ~ "SurePayroll",
+      BRAND == "Intuit Quickbooks" ~ "Intuit Quickbooks",
+      BRAND == "OnPay" ~ "OnPay",
+      TRUE ~ BRAND
+    )
+  )
+PL_PAYROLL_MEANS
+
+
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2<- PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2 |>
+  mutate(
+    BRAND = case_when(
+      BRAND == "SurveyPayroll" ~ "SurePayroll",
+      BRAND == "Intuit Quickbooks" ~ "Intuit Quickbooks",
+      BRAND == "OnPay" ~ "OnPay",
+      TRUE ~ BRAND
+    )
+  )
+PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2
+```
+
+None of the above	
+
+```{r}
+merged_df_PL_PAYROLL_AWARE_NPS <- PL_PAYROLL_MEANS |>
+  inner_join(PAYROLL_BRAND_AWARENESS_DF_PL_PERC_2, by = "BRAND")
+merged_df_PL_PAYROLL_AWARE_NPS
+merged_df_PL_PAYROLL_AWARE_NPS_reduced<-dplyr::select(merged_df_PL_PAYROLL_AWARE_NPS,BRAND,MEAN_SCORE,new_perc)
+merged_df_PL_PAYROLL_AWARE_NPS_reduced$new_perc<-round(merged_df_PL_PAYROLL_AWARE_NPS_reduced$new_perc*100,0)
+merged_df_PL_PAYROLL_AWARE_NPS_reduced
+
+merged_df_PL_PAYROLL_AWARE_NPS_reduced<- merged_df_PL_PAYROLL_AWARE_NPS_reduced |>
+  bind_rows(tibble(
+    BRAND = c("Acrisure","Intuit Quickbooks","OnPay"),
+    MEAN_SCORE = c(1.9,2.300000,2.750000	),
+    new_perc = c(3,71,21)
+  ))
+merged_df_PL_PAYROLL_AWARE_NPS_reduced<-merged_df_PL_PAYROLL_AWARE_NPS_reduced
+merged_df_PL_PAYROLL_AWARE_NPS_reduced
+merged_df_PL_PAYROLL_AWARE_NPS_reduced<-merged_df_PL_PAYROLL_AWARE_NPS_reduced[-7,]
+merged_df_PL_PAYROLL_AWARE_NPS_reduced
+```
+
+```{r}
+p4<-save_scatter_plot(data = merged_df_PL_PAYROLL_AWARE_NPS_reduced, x = "new_perc", y = "MEAN_SCORE", fill = "BRAND", file_name = "PL-PAYROLL-Awarenes-NPS.png")
+p4
+```
+
+
+
+```{r}
+median(merged_df_PL_PAYROLL_AWARE_NPS_reduced$MEAN_SCORE)
+median(merged_df_PL_PAYROLL_AWARE_NPS_reduced$new_perc)
+
+merged_df_PL_PAYROLL_AWARE_NPS_reduced
+```
+
+
+###### Master dataframes from CL and PL versions
+
+LOB: Personal Lines
+```{r}
+merged_df_PL_CARRIER_AWARE_NPS_reduced<-merged_df_PL_CARRIER_AWARE_NPS_reduced[-16,]
+merged_df_PL_BANK_AWARE_NPS_reduced<-merged_df_PL_BANK_AWARE_NPS_reduced[-7,]
+merged_df_PL_PAYROLL_AWARE_NPS_reduced
+```
+```{r}
+require(dplyr)
+merged_df_PL_CARRIER_AWARE_NPS_reduced<-mutate(merged_df_PL_CARRIER_AWARE_NPS_reduced,category = factor(1, levels = 1, labels = "carrier"))
+
+merged_df_PL_BANK_AWARE_NPS_reduced<-mutate(merged_df_PL_BANK_AWARE_NPS_reduced,category = factor(1, levels = 1, labels = "bank"))
+
+merged_df_PL_PAYROLL_AWARE_NPS_reduced <- merged_df_PL_PAYROLL_AWARE_NPS_reduced |>
+  mutate(
+    category = if_else(
+      BRAND == "Acrisure",
+      4,
+      3
+    ),
+    category = factor(category, levels = c(3, 4), labels = c("payroll", "broker"))
+  )
+merged_df_PL_PAYROLL_AWARE_NPS_reduced
+```
+
+
+```{r}
+merged_df_PL_CARRIER_AWARE_NPS_reduced
+merged_df_PL_BANK_AWARE_NPS_reduced
+merged_df_PL_PAYROLL_AWARE_NPS_reduced
+```
+
+
+
+```{r}
+
+library(dplyr)
+
+merged_df_combined_pl_market_map <- bind_rows(
+  merged_df_PL_CARRIER_AWARE_NPS_reduced,
+  merged_df_PL_BANK_AWARE_NPS_reduced,
+  merged_df_PL_PAYROLL_AWARE_NPS_reduced
+)
+merged_df_combined_pl_market_map
+
+
+```
+```{r}
+p6<-save_scatter_plot(data = merged_df_combined_pl_market_map, x = "new_perc", y = "MEAN_SCORE", fill = "category", file_name = "pl-broker-carrier-bank-payroll-comparison.png")
+p6
+```
+
+```{r}
+median(merged_df_combined_pl_market_map$MEAN_SCORE,na.rm = TRUE)
+median(merged_df_combined_pl_market_map$new_perc)
+```
+
+
+LOB: Commercial Lines
+```{r}
+merged_df_CL_PAYROLL_AWARE_NPS_reduced<-merged_df_CL_PAYROLL_AWARE_NPS_reduced[-7,]
+merged_df_CL_BANK_AWARE_NPS_reduced
+```
+
+```{r}
+require(dplyr)
+
+merged_df_CL_PAYROLL_AWARE_NPS_reduced<-mutate(merged_df_CL_PAYROLL_AWARE_NPS_reduced,category = factor(1, levels = 1, labels = "bank"))
+merged_df_CL_PAYROLL_AWARE_NPS_reduced
+merged_df_CL_BANK_AWARE_NPS_reduced <- merged_df_CL_BANK_AWARE_NPS_reduced |>
+  mutate(
+    category = if_else(
+      BRAND == "Acrisure",
+      3,
+      2
+    ),
+    category = factor(category, levels = c(2, 3), labels = c("payroll", "broker"))
+  )
+merged_df_CL_BANK_AWARE_NPS_reduced
+merged_df_CL_BANK_AWARE_NPS_reduced
+```
+
+```{r}
+
+library(dplyr)
+
+merged_df_combined_cl_market_map <- bind_rows(
+merged_df_CL_BANK_AWARE_NPS_reduced,
+merged_df_CL_PAYROLL_AWARE_NPS_reduced,
+)
+merged_df_combined_cl_market_map
+
+```
+
+
+```{r}
+median(merged_df_combined_cl_market_map$MEAN_SCORE)
+median(merged_df_combined_cl_market_map$new_perc)
+```
+
+```{r}
+p7<-save_scatter_plot(data = merged_df_combined_cl_market_map, x = "new_perc", y = "MEAN_SCORE", fill = "category", file_name = "cl-broker-carrier-bank-payroll-comparison.png")
+p7
+```
