@@ -45,7 +45,7 @@ df <- data.frame(
 )
 
 # Filter data
-result <- filtered_data(df, c("A", "B"), c(2, 6))
+result <- filter_data(df, c("A", "B"), c(2, 6))
 to_be_removed <- result[[1]]
 to_be_retained <- result[[2]]
 

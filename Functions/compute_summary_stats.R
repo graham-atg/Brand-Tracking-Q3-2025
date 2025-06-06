@@ -12,11 +12,8 @@ compute_summary_stats <- function(dataframe, categorical_var, continuous_var) {
   summary_stats <- grouped_data %>%
     summarise(
       Mean = mean({{ continuous_var }}, na.rm = TRUE),
-      Median = median({{ continuous_var }}, na.rm = TRUE),
       SD = sd({{ continuous_var }}, na.rm = TRUE),
-      SE = sd({{ continuous_var }}, na.rm = TRUE) / sqrt(n()),
-      Min = min({{ continuous_var }}, na.rm = TRUE),
-      Max = max({{ continuous_var }}, na.rm = TRUE)
+      SE = sd({{ continuous_var }}, na.rm = TRUE) / sqrt(n())
     ) %>%
     ungroup()
   

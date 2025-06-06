@@ -4,6 +4,8 @@
 #If there is an error while loading the package, it captures the error message. 
 #The inputs for this function are file_path (the path to the text file containing the list of required packages).
 
+setwd("/Users/grahamalbert/git/Brand_Tracking_Combined_Q1_2024/Functions")
+
 #This function loads all packages needs for data analysis which are contained in a
 # txt file.
 # install_require_paclakge.R:

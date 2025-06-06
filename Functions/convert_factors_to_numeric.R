@@ -40,4 +40,3 @@ data <- convert_numeric_to_factors(data, factor_columns_to_convert)
 
 # Check the result
 print(data)
-

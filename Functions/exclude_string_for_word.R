@@ -6,8 +6,6 @@
 #   - text_col: The name of the column containing text strings to search.
 #   - partial_strings: A list of strings for partial matching in the specified column.
 # Returns: A dataframe containing the ID column and the column with non-matching partial strings.
-#Primary use to identify inattentive open response - e.g., response of "good" when
-# we ask respondents what the survey is about.
 
 exclude_string_for_word <- function(dataframe, id_col, text_col, partial_strings) {
   # Check if the specified text column exists in the dataframe
